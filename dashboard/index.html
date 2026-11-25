@@ -1,0 +1,2055 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="dashboard-token" content="__DASHBOARD_TOKEN__">
+<title>ai-agent-dotfiles 监控与交互控制台</title>
+<style>
+:root {
+  color-scheme: light dark;
+  --page: #f4f5f1;
+  --panel: #ffffff;
+  --panel-alt: #f8faf6;
+  --ink: #1a2b24;
+  --muted: #56685f;
+  --line: #d6dfd7;
+  --line-strong: #bcc9be;
+  --green: #216944;
+  --green-bg: #e6f4eb;
+  --accent: #2a6095;
+  --accent-bg: #e9f2fb;
+  --warn: #9a4919;
+  --warn-bg: #fdf1e4;
+  --danger: #b42318;
+  --danger-bg: #fdeceb;
+  --wash: #eaf3eb;
+  --shadow: 0 2px 10px rgba(26, 43, 36, 0.06);
+  --mono: ui-monospace, SFMono-Regular, Consolas, "Liberation Mono", Menlo, monospace;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --page: #141a17;
+    --panel: #1d2521;
+    --panel-alt: #232d28;
+    --ink: #e7eee8;
+    --muted: #a6b7ad;
+    --line: #34433b;
+    --line-strong: #495d52;
+    --green: #7dd3a2;
+    --green-bg: #1c3428;
+    --accent: #82b8ee;
+    --accent-bg: #1b2d3e;
+    --warn: #f0b184;
+    --warn-bg: #3b291c;
+    --danger: #f48b84;
+    --danger-bg: #3f201f;
+    --wash: #26372e;
+    --shadow: 0 4px 14px rgba(0, 0, 0, 0.28);
+  }
+}
+* { box-sizing: border-box; }
+html { scroll-behavior: smooth; }
+body {
+  margin: 0;
+  background: var(--page);
+  color: var(--ink);
+  font: 14px/1.58 Inter, "Microsoft YaHei UI", sans-serif;
+}
+main {
+  max-width: 1240px;
+  margin: 0 auto;
+  padding: 18px 20px 44px;
+  display: grid;
+  gap: 16px;
+}
+h1, h2, h3, h4, p { margin: 0; }
+h1 { font-size: 22px; letter-spacing: -0.02em; }
+h2 { font-size: 17px; }
+h3 { font-size: 14.5px; }
+small, .muted { color: var(--muted); }
+small { font-size: 12px; }
+a { color: var(--accent); text-decoration: none; }
+a:hover { text-decoration: underline; }
+code, pre, .mono { font-family: var(--mono); }
+button, select, input[type="text"], input[type="search"] {
+  font: inherit;
+  color: inherit;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 6px 11px;
+}
+button {
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  transition: background-color 0.14s ease, border-color 0.14s ease, opacity 0.14s ease;
+}
+button:hover:not(:disabled) { background: var(--wash); border-color: var(--line-strong); }
+button:disabled { opacity: 0.48; cursor: not-allowed; }
+button.primary {
+  background: var(--green);
+  color: #ffffff;
+  border-color: var(--green);
+}
+button.primary:hover:not(:disabled) { opacity: 0.9; background: var(--green); }
+button.danger {
+  background: var(--danger);
+  color: #ffffff;
+  border-color: var(--danger);
+}
+button.danger:hover:not(:disabled) { opacity: 0.9; background: var(--danger); }
+button.secondary {
+  background: var(--panel-alt);
+}
+button.sm {
+  font-size: 12px;
+  padding: 4px 9px;
+  border-radius: 6px;
+}
+button[aria-pressed="true"] {
+  background: var(--wash);
+  border-color: var(--green);
+  color: var(--green);
+  font-weight: 600;
+}
+.panel {
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  padding: 16px;
+  box-shadow: var(--shadow);
+  min-width: 0;
+}
+.subpanel {
+  background: var(--panel-alt);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 12px;
+  min-width: 0;
+}
+.bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+.row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.stack {
+  display: grid;
+  gap: 10px;
+}
+
+/* Header & Navigation */
+.topbar {
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  padding: 14px 16px;
+  box-shadow: var(--shadow);
+  display: grid;
+  gap: 12px;
+}
+.title-line {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+.badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 600;
+  border: 1px solid var(--line);
+  background: var(--panel-alt);
+  color: var(--ink);
+  white-space: nowrap;
+}
+.badge.ok { background: var(--green-bg); color: var(--green); border-color: transparent; }
+.badge.warn { background: var(--warn-bg); color: var(--warn); border-color: transparent; }
+.badge.error { background: var(--danger-bg); color: var(--danger); border-color: transparent; }
+.badge.info { background: var(--accent-bg); color: var(--accent); border-color: transparent; }
+.dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  display: inline-block;
+  background: var(--muted);
+}
+.dot.ok { background: var(--green); }
+.dot.warn { background: var(--warn); }
+.dot.error { background: var(--danger); }
+.running-pill {
+  background: var(--accent-bg);
+  color: var(--accent);
+  border: 1px solid var(--accent);
+  font-weight: 600;
+}
+.nav-strip {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  padding-top: 8px;
+  border-top: 1px solid var(--line);
+}
+.nav-strip a {
+  padding: 4px 10px;
+  border-radius: 999px;
+  background: var(--panel-alt);
+  border: 1px solid var(--line);
+  color: var(--ink);
+  font-size: 12.5px;
+}
+.nav-strip a:hover { background: var(--wash); text-decoration: none; }
+
+/* KPI Grid */
+.kpi-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 12px;
+}
+.kpi-card {
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  padding: 13px 15px;
+  box-shadow: var(--shadow);
+  display: grid;
+  gap: 6px;
+  align-content: start;
+}
+.kpi-card.level-ok { border-left: 4px solid var(--green); }
+.kpi-card.level-warn { border-left: 4px solid var(--warn); }
+.kpi-card.level-error { border-left: 4px solid var(--danger); }
+.kpi-value {
+  font-size: 18px;
+  font-weight: 700;
+  line-height: 1.25;
+  overflow-wrap: anywhere;
+}
+
+/* Attention Strip */
+.attention-list {
+  display: grid;
+  gap: 8px;
+}
+.attention-card {
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 10px 13px;
+  background: var(--panel-alt);
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.attention-card.level-warn { background: var(--warn-bg); border-color: var(--warn); }
+.attention-card.level-error { background: var(--danger-bg); border-color: var(--danger); }
+.attention-card.level-ok { background: var(--green-bg); border-color: var(--green); }
+.attention-body { display: grid; gap: 3px; min-width: 0; flex: 1 1 280px; }
+
+/* Section Grids */
+.grid-2 {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px;
+}
+.grid-4 {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(230px, 1fr));
+  gap: 12px;
+}
+
+/* Diff & File List */
+.cat-group {
+  border: 1px solid var(--line);
+  border-radius: 9px;
+  overflow: hidden;
+  background: var(--panel-alt);
+}
+.cat-header {
+  padding: 7px 11px;
+  background: var(--wash);
+  border-bottom: 1px solid var(--line);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-weight: 600;
+  font-size: 13px;
+}
+.file-row {
+  border-top: 1px solid var(--line);
+}
+.file-row:first-child { border-top: none; }
+.file-btn {
+  width: 100%;
+  border: none;
+  border-radius: 0;
+  background: transparent;
+  justify-content: space-between;
+  text-align: left;
+  padding: 7px 11px;
+  font-size: 13px;
+}
+.file-btn:hover { background: var(--panel); }
+.file-path {
+  font-family: var(--mono);
+  font-size: 12.5px;
+  overflow-wrap: anywhere;
+}
+.diff-box {
+  border-top: 1px solid var(--line);
+  background: var(--page);
+  padding: 10px;
+  max-height: 300px;
+  overflow: auto;
+  font-family: var(--mono);
+  font-size: 12px;
+  line-height: 1.48;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.diff-line { display: block; padding: 0 4px; }
+.diff-add { background: var(--green-bg); color: var(--green); }
+.diff-del { background: var(--danger-bg); color: var(--danger); }
+.diff-hunk { color: var(--accent); font-weight: 600; }
+
+/* Lists & Timeline */
+.list-box {
+  display: grid;
+  gap: 8px;
+  max-height: 360px;
+  overflow: auto;
+}
+.item-card {
+  border: 1px solid var(--line);
+  border-radius: 9px;
+  padding: 9px 11px;
+  background: var(--panel-alt);
+  display: grid;
+  gap: 4px;
+  overflow-wrap: anywhere;
+}
+
+/* Skills Browser */
+.skills-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(250px, 1fr));
+  gap: 10px;
+  max-height: 440px;
+  overflow: auto;
+  padding-right: 2px;
+}
+.skill-card {
+  text-align: left;
+  display: grid;
+  gap: 6px;
+  align-content: start;
+  padding: 11px 12px;
+  border-radius: 10px;
+  background: var(--panel-alt);
+  border: 1px solid var(--line);
+}
+.skill-card:hover { background: var(--wash); border-color: var(--green); }
+.skill-desc {
+  font-size: 12.5px;
+  color: var(--muted);
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+/* Tables & Logs */
+table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+th, td {
+  text-align: left;
+  padding: 7px 9px;
+  border-bottom: 1px solid var(--line);
+  vertical-align: top;
+  overflow-wrap: anywhere;
+}
+th { color: var(--muted); font-weight: 600; background: var(--panel-alt); }
+pre.log {
+  margin: 0;
+  padding: 10px 12px;
+  background: var(--page);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  font-size: 12px;
+  line-height: 1.48;
+  max-height: 320px;
+  overflow: auto;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+details > summary {
+  cursor: pointer;
+  font-weight: 600;
+  color: var(--accent);
+  user-select: none;
+}
+
+/* Notice banner */
+.notice {
+  padding: 9px 12px;
+  border-radius: 9px;
+  border: 1px solid var(--line);
+  background: var(--panel-alt);
+  font-size: 13px;
+}
+.notice.warn { background: var(--warn-bg); border-color: var(--warn); color: var(--warn); }
+.notice.error { background: var(--danger-bg); border-color: var(--danger); color: var(--danger); }
+.notice.ok { background: var(--green-bg); border-color: var(--green); color: var(--green); }
+
+/* Modals */
+.modal-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(15, 22, 18, 0.58);
+  display: none;
+  align-items: center;
+  justify-content: center;
+  padding: 16px;
+  z-index: 50;
+}
+.modal-backdrop.open { display: flex; }
+.modal {
+  width: min(820px, 100%);
+  max-height: 90vh;
+  overflow: auto;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  padding: 18px;
+  box-shadow: 0 16px 40px rgba(0, 0, 0, 0.35);
+  display: grid;
+  gap: 13px;
+}
+.confirm-box {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 12px;
+  border-radius: 9px;
+  border: 1px solid var(--line);
+  background: var(--panel-alt);
+  cursor: pointer;
+  font-weight: 600;
+}
+
+/* Toast */
+.toast {
+  position: fixed;
+  right: 18px;
+  bottom: 18px;
+  z-index: 80;
+  background: var(--ink);
+  color: var(--panel);
+  padding: 9px 14px;
+  border-radius: 9px;
+  font-size: 13px;
+  font-weight: 600;
+  box-shadow: var(--shadow);
+  opacity: 0;
+  pointer-events: none;
+  transform: translateY(8px);
+  transition: opacity 0.16s ease, transform 0.16s ease;
+}
+.toast.show { opacity: 1; transform: translateY(0); }
+
+@media (max-width: 960px) {
+  .kpi-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .grid-2 { grid-template-columns: 1fr; }
+}
+@media (max-width: 600px) {
+  main { padding: 12px 10px 36px; gap: 12px; }
+  .kpi-grid { grid-template-columns: 1fr; }
+  .panel { padding: 12px; }
+}
+</style>
+</head>
+<body>
+<main>
+  <!-- Top Header & Status Strip -->
+  <header class="topbar">
+    <div class="bar">
+      <div class="stack" style="gap:4px">
+        <div class="title-line">
+          <h1>ai-agent-dotfiles 监控与交互控制台</h1>
+          <span id="branchBadge" class="badge mono">分支加载中…</span>
+          <span id="upstreamBadge" class="badge" style="display:none"></span>
+          <span id="connStatus" class="badge" role="status"><span id="connDot" class="dot"></span><span id="connText">正在连接…</span></span>
+        </div>
+        <small id="headSubject">正在读取仓库概览…</small>
+      </div>
+      <div class="row">
+        <button id="runningJobPill" type="button" class="sm running-pill" style="display:none"></button>
+        <button id="autoRefreshBtn" type="button" class="sm" aria-pressed="true">自动刷新：开启 (8s)</button>
+        <button id="fullRefreshBtn" type="button" class="sm primary">全面刷新（同步与 GitHub）</button>
+      </div>
+    </div>
+
+    <nav class="nav-strip" aria-label="控制台分区导航">
+      <a href="#sec-attention">需要关注</a>
+      <a href="#sec-progress">1. 开发进展监控</a>
+      <a href="#sec-sync">2. 双端同步与技能资产</a>
+      <a href="#sec-actions">3. 安全体检与受控操作</a>
+      <a href="#sec-jobs">4. 执行记录与日志</a>
+      <small id="lastUpdatedLabel" style="margin-left:auto"></small>
+    </nav>
+  </header>
+
+  <!-- 4 Color-coded KPI Light Cards -->
+  <section class="kpi-grid" aria-label="核心状态指标">
+    <div id="kpiSync" class="kpi-card">
+      <div class="bar"><strong>双端同步状态</strong><span id="kpiSyncBadge" class="badge">加载中</span></div>
+      <div id="kpiSyncValue" class="kpi-value">--</div>
+      <small id="kpiSyncSub">等待查询同步状态…</small>
+    </div>
+    <div id="kpiDirty" class="kpi-card">
+      <div class="bar"><strong>工作区改动</strong><span id="kpiDirtyBadge" class="badge">加载中</span></div>
+      <div id="kpiDirtyValue" class="kpi-value">--</div>
+      <small id="kpiDirtySub">检查未提交改动…</small>
+    </div>
+    <div id="kpiCi" class="kpi-card">
+      <div class="bar"><strong>GitHub 验证(CI)</strong><span id="kpiCiBadge" class="badge">加载中</span></div>
+      <div id="kpiCiValue" class="kpi-value">--</div>
+      <small id="kpiCiSub">等待查询 PR 与 CI…</small>
+    </div>
+    <div id="kpiSwarm" class="kpi-card">
+      <div class="bar"><strong>多 Agent 协作看板</strong><span id="kpiSwarmBadge" class="badge">加载中</span></div>
+      <div id="kpiSwarmValue" class="kpi-value">--</div>
+      <small id="kpiSwarmSub">扫描协作看板实例…</small>
+    </div>
+  </section>
+
+  <!-- Attention Strip -->
+  <section id="sec-attention" class="panel stack">
+    <div class="bar">
+      <div class="row">
+        <h2>现在需要你关注</h2>
+        <span id="attentionCount" class="badge">0 项</span>
+      </div>
+      <small>优先汇总工作区改动、待办、双端漂移与 CI 异常</small>
+    </div>
+    <div id="attentionList" class="attention-list"></div>
+  </section>
+
+  <!-- Section 1: Development Progress -->
+  <section id="sec-progress" class="panel stack">
+    <div class="bar">
+      <h2>1. 开发进展监控（AI 正在和刚做完什么）</h2>
+      <small id="repoMeta"></small>
+    </div>
+
+    <div class="grid-2">
+      <!-- Workspace Changes Card -->
+      <div class="subpanel stack">
+        <div class="bar">
+          <div class="row">
+            <h3>工作区改动</h3>
+            <span id="changesBadge" class="badge">0 处</span>
+          </div>
+          <div class="row">
+            <button id="copyExplainDiffBtn" type="button" class="sm">复制给 AI 帮我解释改动</button>
+            <button id="copyReviewCommitBtn" type="button" class="sm">复制给 AI 复核并提交</button>
+          </div>
+        </div>
+        <div id="changesContainer" class="stack"></div>
+      </div>
+
+      <!-- Open Items & Active Tasks -->
+      <div class="subpanel stack">
+        <div class="bar">
+          <h3>待办与进行中任务</h3>
+          <small id="statusDocDate"></small>
+        </div>
+        <div id="statusTasksContainer" class="list-box"></div>
+      </div>
+    </div>
+
+    <div class="grid-2">
+      <!-- Recent Commits & GitHub PR/CI -->
+      <div class="subpanel stack">
+        <div class="bar">
+          <h3>近期提交与 GitHub PR / CI</h3>
+          <button id="refreshGithubBtn" type="button" class="sm">刷新 GitHub</button>
+        </div>
+        <div id="githubStatusNotice"></div>
+        <div id="githubPrContainer" class="stack"></div>
+        <div id="githubCiContainer" class="stack"></div>
+        <div class="stack" style="gap:6px">
+          <strong style="font-size:13px">近期本地提交</strong>
+          <div id="recentCommitsContainer" class="list-box"></div>
+        </div>
+      </div>
+
+      <!-- Swarm / Teamwork Boards -->
+      <div class="subpanel stack">
+        <div class="bar">
+          <h3>Swarm / Teamwork 协作看板</h3>
+          <span id="swarmCountBadge" class="badge">0 个</span>
+        </div>
+        <form id="swarmProbeForm" class="row">
+          <input id="swarmManifestInput" type="text" style="flex:1 1 200px" placeholder="输入 manifest.json 路径（如 tmp/swarm/run/manifest.json）" aria-label="协作看板 manifest.json 路径">
+          <button id="swarmProbeBtn" type="submit" class="sm">探测并加入看板</button>
+        </form>
+        <div id="swarmProbeNotice"></div>
+        <div id="swarmBoardsContainer" class="list-box"></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- Section 2: Dual-Platform Sync & Assets -->
+  <section id="sec-sync" class="panel stack">
+    <div class="bar">
+      <div class="row">
+        <h2>2. 双端同步与资产总览（Codex &amp; Antigravity）</h2>
+        <span id="syncSummaryBadge" class="badge">加载中</span>
+      </div>
+      <div class="row">
+        <small id="syncFetchedAt"></small>
+        <button id="refreshSyncBtn" type="button" class="sm">刷新同步状态</button>
+      </div>
+    </div>
+    <div id="syncSummaryNote" class="notice" style="display:none"></div>
+    <div id="syncCardsGrid" class="grid-4"></div>
+
+    <!-- Searchable Skills Browser -->
+    <div class="subpanel stack">
+      <div class="bar">
+        <div class="row">
+          <h3>可搜索技能浏览器</h3>
+          <span id="skillsTotalBadge" class="badge">0 项</span>
+        </div>
+        <input id="skillSearchInput" type="search" style="min-width:240px;max-width:340px;width:100%" placeholder="搜索技能名称、说明或目录…" aria-label="搜索技能">
+      </div>
+      <div id="skillFilterPills" class="row" role="group" aria-label="技能筛选">
+        <button type="button" class="sm" data-filter="all" aria-pressed="true">全部</button>
+        <button type="button" class="sm" data-filter="shared" aria-pressed="false">双端共享</button>
+        <button type="button" class="sm" data-filter="codex-only" aria-pressed="false">Codex 专用</button>
+        <button type="button" class="sm" data-filter="work" aria-pressed="false">work 日常</button>
+        <button type="button" class="sm" data-filter="antigravity" aria-pressed="false">Antigravity 插件</button>
+      </div>
+      <div id="skillsGrid" class="skills-grid"></div>
+    </div>
+
+    <details id="rawSyncDetails">
+      <summary>查看脱敏原始状态 JSON</summary>
+      <pre id="rawSyncJson" class="log" style="margin-top:8px">等待加载…</pre>
+    </details>
+  </section>
+
+  <!-- Section 3: Safety Checks & Controlled Operations -->
+  <section id="sec-actions" class="panel stack">
+    <div class="bar">
+      <h2>3. 安全体检与受控操作中心</h2>
+      <small id="actionLockNote">所有写操作均强制“先预览 → 二次确认 → 再执行”</small>
+    </div>
+
+    <div class="grid-2">
+      <!-- Read-only Safety Checks & Tests -->
+      <div class="subpanel stack">
+        <h3>安全检查区（不改本机配置）</h3>
+        <div class="row">
+          <button type="button" class="js-action-btn" data-action="doctor">运行健康体检 (doctor)</button>
+          <button type="button" class="js-action-btn" data-action="scan">秘密扫描 (scan)</button>
+          <button type="button" class="js-action-btn" data-action="build-skills">构建技能 (build)</button>
+          <button type="button" class="js-action-btn" data-action="antigravity-build">打包 Antigravity 插件</button>
+        </div>
+        <div class="stack" style="gap:6px;padding-top:6px;border-top:1px solid var(--line)">
+          <strong style="font-size:13px">测试套件验证</strong>
+          <div class="row">
+            <select id="testSuiteSelect" style="flex:1 1 200px" aria-label="选择单套测试"></select>
+            <button id="runSelectedSuiteBtn" type="button" class="js-action-btn" data-action="test-suite">运行所选测试</button>
+          </div>
+          <div class="row">
+            <button id="runAllTestsBtn" type="button" class="js-action-btn secondary" data-action="test-all">运行全量测试</button>
+            <small class="muted">预计 2–5 分钟，期间请勿同时运行另一套本地全量验证。</small>
+          </div>
+        </div>
+      </div>
+
+      <!-- Dual-Platform Sync Preview -->
+      <div class="subpanel stack">
+        <div class="bar">
+          <h3>双端同步区（强制先预览后执行）</h3>
+          <label class="row" style="gap:6px">
+            <small>环境</small>
+            <select id="syncEnvSelect" aria-label="选择 Codex 环境">
+              <option value="work" selected>work（日常推荐）</option>
+              <option value="full">full（全部技能）</option>
+              <option value="minimal">minimal（最小集）</option>
+            </select>
+          </label>
+        </div>
+        <div class="row">
+          <button type="button" class="js-preview-btn" data-target="codex-env">预览 Codex 完整同步</button>
+          <button type="button" class="js-preview-btn" data-target="codex-skills">预览 Codex 仅技能同步</button>
+          <button type="button" class="js-preview-btn" data-target="antigravity-config">预览 Antigravity 全局规则同步</button>
+          <button type="button" class="js-preview-btn" data-target="antigravity-plugin">预览 Antigravity 插件部署</button>
+          <button type="button" class="js-preview-btn" data-target="mcp">预览受管 MCP 同步</button>
+        </div>
+        <div class="notice">
+          涉及 Git 提交/推送、本机配置回抓或删除旧技能的高风险操作，请继续在 AI 对话中由 AI 把关。
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- Section 4: Jobs History & Collapsible Log Drawer -->
+  <section id="sec-jobs" class="panel stack">
+    <div class="bar">
+      <div class="row">
+        <h2>4. 执行记录与折叠日志抽屉</h2>
+        <span id="jobsCountBadge" class="badge">0 条</span>
+      </div>
+      <button id="refreshJobsBtn" type="button" class="sm">刷新记录</button>
+    </div>
+    <div id="jobsListContainer" class="stack"></div>
+  </section>
+</main>
+
+<!-- Skill Detail Modal -->
+<div id="skillModalBackdrop" class="modal-backdrop" role="dialog" aria-modal="true" aria-labelledby="skillModalTitle">
+  <div class="modal">
+    <div class="bar">
+      <div class="stack" style="gap:3px">
+        <h2 id="skillModalTitle">技能详情</h2>
+        <small id="skillModalMeta"></small>
+      </div>
+      <button id="closeSkillModalBtn" type="button" class="sm">关闭</button>
+    </div>
+    <pre id="skillModalBody" class="log" style="max-height:65vh">加载中…</pre>
+  </div>
+</div>
+
+<!-- Sync Preview & Double-Confirmation Apply Modal -->
+<div id="previewModalBackdrop" class="modal-backdrop" role="dialog" aria-modal="true" aria-labelledby="previewModalTitle">
+  <div class="modal">
+    <div class="bar">
+      <div class="stack" style="gap:3px">
+        <h2 id="previewModalTitle">同步变更预览与二次确认</h2>
+        <small id="previewModalMeta"></small>
+      </div>
+      <button id="closePreviewModalBtn" type="button" class="sm">关闭</button>
+    </div>
+
+    <div id="previewAlertBox"></div>
+    <div id="previewTableWrap" style="max-height:260px;overflow:auto"></div>
+    <div id="previewRiskBox" class="notice"></div>
+
+    <details id="previewRawDetails">
+      <summary>查看原始预览日志（已脱敏）</summary>
+      <pre id="previewRawLog" class="log" style="margin-top:8px"></pre>
+    </details>
+
+    <label id="previewConfirmLabel" class="confirm-box">
+      <input id="previewConfirmCheckbox" type="checkbox">
+      <span>我已核对以上变更清单，确认写入本机</span>
+    </label>
+
+    <div class="bar">
+      <button id="copyPreviewToAiBtn" type="button" class="secondary">复制预览结果给 AI 评估</button>
+      <div class="row">
+        <button id="cancelPreviewBtn" type="button">取消</button>
+        <button id="applyPreviewBtn" type="button" class="primary" disabled>确认并执行写入 (Apply)</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div id="toast" class="toast" role="status" aria-live="polite"></div>
+
+<script>
+"use strict";
+
+const byId = id => document.getElementById(id);
+const csrfToken = (() => {
+  const meta = document.querySelector('meta[name="dashboard-token"]');
+  return meta ? (meta.getAttribute("content") || "") : "";
+})();
+
+const state = {
+  autoRefresh: true,
+  pollTimer: null,
+  jobPollTimer: null,
+  overview: null,
+  syncStatus: null,
+  github: null,
+  testSuites: null,
+  jobs: [],
+  jobDetails: new Map(),
+  openDiffs: new Map(),
+  activeJobId: null,
+  currentPreviewJob: null,
+  skillFilter: "all",
+  skillSearch: "",
+  toastTimer: null,
+  lastHandledPreviewJobId: null
+};
+
+const TARGET_LABELS = {
+  "codex-env": "Codex 完整同步",
+  "codex-skills": "Codex 仅技能同步",
+  "antigravity-config": "Antigravity 全局规则同步",
+  "antigravity-plugin": "Antigravity 插件部署",
+  "mcp": "受管 MCP 同步"
+};
+
+function el(tag, text, className) {
+  const node = document.createElement(tag);
+  if (text != null) node.textContent = String(text);
+  if (className) node.className = className;
+  return node;
+}
+
+function safeHref(rawUrl) {
+  if (!rawUrl || typeof rawUrl !== "string") return null;
+  try {
+    const u = new URL(rawUrl, window.location.origin);
+    if (u.protocol === "http:" || u.protocol === "https:") return u.href;
+  } catch {
+    return null;
+  }
+  return null;
+}
+
+function externalLink(label, rawUrl, className) {
+  const href = safeHref(rawUrl);
+  if (!href) return el("span", label, "muted");
+  const a = el("a", label, className);
+  a.href = href;
+  a.target = "_blank";
+  a.rel = "noopener noreferrer";
+  return a;
+}
+
+function showToast(msg) {
+  const t = byId("toast");
+  t.textContent = msg;
+  t.classList.add("show");
+  if (state.toastTimer) clearTimeout(state.toastTimer);
+  state.toastTimer = setTimeout(() => t.classList.remove("show"), 2600);
+}
+
+async function copyText(text, toastMsg) {
+  const content = String(text || "");
+  if (!content) {
+    showToast("没有可复制的内容");
+    return;
+  }
+  try {
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      await navigator.clipboard.writeText(content);
+      showToast(toastMsg || "已复制，可直接粘贴给 AI");
+      return;
+    }
+  } catch {
+    // Fallback below.
+  }
+  try {
+    const area = document.createElement("textarea");
+    area.value = content;
+    area.style.position = "fixed";
+    area.style.opacity = "0";
+    document.body.appendChild(area);
+    area.focus();
+    area.select();
+    const ok = document.execCommand("copy");
+    document.body.removeChild(area);
+    if (ok) {
+      showToast(toastMsg || "已复制，可直接粘贴给 AI");
+      return;
+    }
+  } catch {
+    // Ignored.
+  }
+  showToast("浏览器未允许剪贴板访问，请手动复制");
+}
+
+function formatTime(iso) {
+  if (!iso) return "--";
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return String(iso);
+  return d.toLocaleString("zh-CN", { hour12: false });
+}
+
+function levelClass(level) {
+  if (level === "ok" || level === "success" || level === "succeeded" || level === "PASS") return "ok";
+  if (level === "error" || level === "fail" || level === "failed" || level === "FAIL") return "error";
+  if (level === "warn" || level === "WARN") return "warn";
+  return "info";
+}
+
+function levelBadge(level, text) {
+  return el("span", text, "badge " + levelClass(level));
+}
+
+async function apiGet(path) {
+  const res = await fetch(path, { cache: "no-store" });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) {
+    throw new Error(data.error || data.message_zh || ("HTTP " + res.status));
+  }
+  return data;
+}
+
+async function apiPost(path, payload) {
+  const res = await fetch(path, {
+    method: "POST",
+    cache: "no-store",
+    headers: {
+      "Content-Type": "application/json",
+      "X-Dashboard-Token": csrfToken
+    },
+    body: JSON.stringify(payload || {})
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) {
+    throw new Error(data.error || data.message_zh || ("HTTP " + res.status));
+  }
+  return data;
+}
+
+function setConnectionState(ok, message) {
+  const dot = byId("connDot");
+  const text = byId("connText");
+  dot.className = "dot " + (ok ? "ok" : "error");
+  text.textContent = message;
+}
+
+function isJobBusy() {
+  return Boolean(state.activeJobId || (state.overview && state.overview.active_job));
+}
+
+function updateActionDisabledState() {
+  const busy = isJobBusy();
+  for (const btn of document.querySelectorAll(".js-action-btn, .js-preview-btn")) {
+    btn.disabled = busy;
+  }
+  const active = (state.overview && state.overview.active_job) || state.jobs.find(j => j.status === "running");
+  const pill = byId("runningJobPill");
+  if (active && active.status === "running") {
+    pill.style.display = "inline-flex";
+    pill.textContent = "执行中：" + (active.label_zh || active.kind || active.id);
+    byId("actionLockNote").textContent = "当前已有任务正在执行，其余检查与同步按钮已临时锁定";
+  } else {
+    pill.style.display = "none";
+    byId("actionLockNote").textContent = "所有写操作均强制“先预览 → 二次确认 → 再执行”";
+  }
+  syncApplyButtonState();
+}
+
+function syncApplyButtonState() {
+  const btn = byId("applyPreviewBtn");
+  const cb = byId("previewConfirmCheckbox");
+  const preview = state.currentPreviewJob && state.currentPreviewJob.preview;
+  const canApply = Boolean(preview && preview.can_apply === true && cb.checked && !isJobBusy());
+  btn.disabled = !canApply;
+}
+
+function renderHeaderAndKpis() {
+  const ov = state.overview;
+  if (!ov) return;
+  const repo = ov.repo || {};
+  const branchText = (repo.branch || "未知分支") + (repo.head_short ? (" @ " + repo.head_short) : "");
+  byId("branchBadge").textContent = branchText;
+  byId("headSubject").textContent = repo.head_subject ? ("最近提交：" + repo.head_subject) : "仓库已连接";
+  byId("lastUpdatedLabel").textContent = "概览更新：" + formatTime(ov.generated_at);
+  byId("repoMeta").textContent = (repo.name || "ai-agent-dotfiles") + " · " + branchText;
+
+  const upBadge = byId("upstreamBadge");
+  if (repo.upstream) {
+    upBadge.style.display = "inline-flex";
+    const ahead = Number(repo.ahead || 0);
+    const behind = Number(repo.behind || 0);
+    upBadge.textContent = repo.upstream + " (领先 " + ahead + " / 落后 " + behind + ")";
+    upBadge.className = "badge " + (behind > 0 ? "warn" : (ahead > 0 ? "info" : "ok"));
+  } else {
+    upBadge.style.display = "none";
+  }
+
+  // KPI 1: Sync Status
+  const kpiSync = byId("kpiSync");
+  const sync = state.syncStatus;
+  if (!sync) {
+    kpiSync.className = "kpi-card";
+    byId("kpiSyncBadge").className = "badge";
+    byId("kpiSyncBadge").textContent = "查询中";
+    byId("kpiSyncValue").textContent = "待读取";
+    byId("kpiSyncSub").textContent = "正在查询双端同步状态…";
+  } else {
+    const lvl = sync.summary_level || (sync.ok ? "ok" : "error");
+    kpiSync.className = "kpi-card level-" + (lvl === "ok" ? "ok" : (lvl === "warn" ? "warn" : "error"));
+    byId("kpiSyncBadge").className = "badge " + levelClass(lvl);
+    byId("kpiSyncBadge").textContent = lvl === "ok" ? "已对齐" : (lvl === "warn" ? "存在差异" : "异常");
+    const envName = (sync.environment && (sync.environment.recorded || sync.environment.Recorded)) || "未记录";
+    byId("kpiSyncValue").textContent = "Codex 环境: " + envName;
+    byId("kpiSyncSub").textContent = sync.summary_zh || sync.error || "已获取本机双端状态";
+  }
+
+  // KPI 2: Workspace Dirty
+  const kpiDirty = byId("kpiDirty");
+  const totalChanges = Number(repo.total_changes || 0);
+  const dirtyLvl = totalChanges === 0 ? "ok" : "warn";
+  kpiDirty.className = "kpi-card level-" + dirtyLvl;
+  byId("kpiDirtyBadge").className = "badge " + dirtyLvl;
+  byId("kpiDirtyBadge").textContent = totalChanges === 0 ? "工作区干净" : "有未提交改动";
+  byId("kpiDirtyValue").textContent = totalChanges === 0 ? "0 处改动" : (totalChanges + " 个文件改动");
+  const catSummary = (repo.categories || []).slice(0, 3).map(c => c.label + "(" + c.count + ")").join("、");
+  byId("kpiDirtySub").textContent = catSummary || "无未提交文件";
+
+  // KPI 3: GitHub CI
+  const kpiCi = byId("kpiCi");
+  const gh = state.github;
+  if (!gh) {
+    kpiCi.className = "kpi-card";
+    byId("kpiCiBadge").className = "badge";
+    byId("kpiCiBadge").textContent = "查询中";
+    byId("kpiCiValue").textContent = "--";
+    byId("kpiCiSub").textContent = "等待查询 GitHub…";
+  } else if (gh.offline || !gh.available) {
+    kpiCi.className = "kpi-card level-warn";
+    byId("kpiCiBadge").className = "badge warn";
+    byId("kpiCiBadge").textContent = "离线";
+    byId("kpiCiValue").textContent = "仅本地模式";
+    byId("kpiCiSub").textContent = gh.message_zh || "当前离线或无法连接 GitHub（不影响本地监控）";
+  } else {
+    const runs = gh.ci_runs || [];
+    const prs = gh.open_prs || [];
+    const latest = runs[0];
+    let ciLvl = "ok";
+    let ciBadgeText = "正常";
+    let ciVal = "暂无 CI 记录";
+    if (latest) {
+      const concl = latest.conclusion || latest.status || "";
+      if (concl === "failure" || concl === "cancelled" || concl === "timed_out") {
+        ciLvl = "error";
+        ciBadgeText = "CI 失败";
+      } else if (latest.status !== "completed") {
+        ciLvl = "warn";
+        ciBadgeText = "CI 运行中";
+      } else {
+        ciLvl = "ok";
+        ciBadgeText = "CI 通过";
+      }
+      ciVal = (latest.workflowName || "Validate") + " · " + (latest.conclusion || latest.status || "未知");
+    }
+    kpiCi.className = "kpi-card level-" + ciLvl;
+    byId("kpiCiBadge").className = "badge " + ciLvl;
+    byId("kpiCiBadge").textContent = ciBadgeText;
+    byId("kpiCiValue").textContent = ciVal;
+    byId("kpiCiSub").textContent = "开放 PR " + prs.length + " 个 · 最近运行 " + runs.length + " 次";
+  }
+
+  // KPI 4: Swarm Boards
+  const kpiSwarm = byId("kpiSwarm");
+  const boards = (ov.swarm && ov.swarm.boards) || [];
+  const runningBoards = boards.filter(b => b.running);
+  const swarmLvl = runningBoards.length > 0 ? "ok" : "warn";
+  kpiSwarm.className = "kpi-card" + (runningBoards.length > 0 ? " level-ok" : "");
+  byId("kpiSwarmBadge").className = "badge " + (runningBoards.length > 0 ? "ok" : "info");
+  byId("kpiSwarmBadge").textContent = runningBoards.length > 0 ? "运行中" : "空闲";
+  byId("kpiSwarmValue").textContent = runningBoards.length + " 个运行中 / 共 " + boards.length + " 个";
+  byId("kpiSwarmSub").textContent = runningBoards.length > 0
+    ? ("活跃任务：" + (runningBoards[0].run || "协作看板"))
+    : "可在下方手动探测 manifest.json";
+}
+
+function renderAttention() {
+  const ov = state.overview;
+  const list = byId("attentionList");
+  list.replaceChildren();
+  const items = [];
+  if (ov && Array.isArray(ov.attention)) items.push(...ov.attention);
+  if (state.syncStatus && Array.isArray(state.syncStatus.attention)) {
+    for (const sItem of state.syncStatus.attention) {
+      if (!items.some(x => x.title === sItem.title && x.detail === sItem.detail)) {
+        items.push(sItem);
+      }
+    }
+  }
+  byId("attentionCount").textContent = items.length + " 项";
+  if (!items.length) {
+    const empty = el("div", null, "attention-card level-ok");
+    const body = el("div", null, "attention-body");
+    body.append(el("strong", "当前没有需要立即处理的事项"), el("small", "仓库、同步与服务检查均处于正常状态。"));
+    empty.append(body);
+    list.append(empty);
+    return;
+  }
+  for (const item of items) {
+    const lvl = item.level || "warn";
+    const card = el("div", null, "attention-card level-" + (lvl === "error" ? "error" : (lvl === "ok" ? "ok" : "warn")));
+    const body = el("div", null, "attention-body");
+    const titleRow = el("div", null, "row");
+    titleRow.append(levelBadge(lvl, lvl === "error" ? "需处理" : (lvl === "ok" ? "正常" : "提醒")), el("strong", item.title || "待关注事项"));
+    body.append(titleRow);
+    if (item.detail) body.append(el("small", item.detail));
+    card.append(body);
+
+    const actions = el("div", null, "row");
+    if (item.action_type === "doctor") {
+      const btn = el("button", item.action_label || "运行健康体检", "sm primary js-action-btn");
+      btn.dataset.action = "doctor";
+      btn.onclick = () => triggerAction("doctor");
+      actions.append(btn);
+    } else if (item.action_type === "preview") {
+      const btn = el("button", item.action_label || "去预览同步", "sm primary");
+      btn.onclick = () => {
+        if (item.target) {
+          triggerPreview(item.target, item.environment || byId("syncEnvSelect").value);
+        } else {
+          byId("sec-actions").scrollIntoView({ behavior: "smooth" });
+        }
+      };
+      actions.append(btn);
+    }
+    if (item.ai_prompt) {
+      const copyBtn = el("button", "复制指令给 AI", "sm");
+      copyBtn.onclick = () => copyText(item.ai_prompt, "已复制，可直接粘贴给 AI");
+      actions.append(copyBtn);
+    }
+    if (actions.childNodes.length) card.append(actions);
+    list.append(card);
+  }
+  updateActionDisabledState();
+}
+
+function renderDiffContent(container, diffText, truncated) {
+  container.replaceChildren();
+  if (!diffText) {
+    container.append(el("span", "（暂无可显示的文本差异）", "muted"));
+    return;
+  }
+  const lines = diffText.split(/\r?\n/);
+  for (const line of lines) {
+    let cls = "diff-line";
+    if (line.startsWith("+") && !line.startsWith("+++")) cls += " diff-add";
+    else if (line.startsWith("-") && !line.startsWith("---")) cls += " diff-del";
+    else if (line.startsWith("@@")) cls += " diff-hunk";
+    container.append(el("span", line, cls));
+  }
+  if (truncated) {
+    container.append(el("small", "（内容过长，已截断，仅展示部分预览）", "muted"));
+  }
+}
+
+async function toggleFileDiff(filePath, boxEl, btnEl) {
+  if (state.openDiffs.has(filePath)) {
+    state.openDiffs.delete(filePath);
+    boxEl.style.display = "none";
+    btnEl.setAttribute("aria-expanded", "false");
+    return;
+  }
+  btnEl.setAttribute("aria-expanded", "true");
+  boxEl.style.display = "block";
+  boxEl.replaceChildren(el("span", "正在加载差异…", "muted"));
+  try {
+    const data = await apiGet("/api/diff?path=" + encodeURIComponent(filePath));
+    state.openDiffs.set(filePath, data);
+    renderDiffContent(boxEl, data.diff, data.truncated);
+  } catch (err) {
+    boxEl.replaceChildren(el("span", "读取差异失败：" + err.message, "muted"));
+  }
+}
+
+function buildWorkspaceAiPrompt(mode) {
+  const repo = (state.overview && state.overview.repo) || {};
+  const cats = repo.categories || [];
+  const total = Number(repo.total_changes || 0);
+  const lines = cats.map(c => "- " + c.label + " (" + c.count + "): " + (c.files || []).map(f => f.path + " [" + (f.status_zh || f.code) + "]").join(", "));
+  if (mode === "explain") {
+    return "请检查当前仓库分支 `" + (repo.branch || "HEAD") + "` 的工作区改动（共 " + total + " 个文件），用中文向我逐项解释改动目的与影响：\n" + (lines.join("\n") || "（当前工作区干净）");
+  }
+  return "请复核当前仓库分支 `" + (repo.branch || "HEAD") + "` 的工作区改动（共 " + total + " 个文件），运行必要检查后按规范给出提交建议或帮我提交：\n" + (lines.join("\n") || "（当前工作区干净）");
+}
+
+function renderWorkspaceChanges() {
+  const repo = (state.overview && state.overview.repo) || {};
+  const total = Number(repo.total_changes || 0);
+  const badge = byId("changesBadge");
+  badge.textContent = total + " 处";
+  badge.className = "badge " + (total === 0 ? "ok" : "warn");
+
+  byId("copyExplainDiffBtn").disabled = total === 0;
+  byId("copyReviewCommitBtn").disabled = total === 0;
+
+  const container = byId("changesContainer");
+  container.replaceChildren();
+  const cats = repo.categories || [];
+  if (!cats.length || total === 0) {
+    container.append(el("div", "当前工作区干净，没有未提交改动。", "notice ok"));
+    return;
+  }
+  for (const cat of cats) {
+    if (!cat.files || !cat.files.length) continue;
+    const group = el("div", null, "cat-group");
+    const header = el("div", null, "cat-header");
+    header.append(el("span", cat.label || cat.id), el("span", (cat.count ?? cat.files.length) + " 个", "badge"));
+    group.append(header);
+
+    for (const file of cat.files) {
+      const row = el("div", null, "file-row");
+      const btn = el("button", null, "file-btn");
+      btn.type = "button";
+      const isOpen = state.openDiffs.has(file.path);
+      btn.setAttribute("aria-expanded", String(isOpen));
+      btn.append(el("span", file.path, "file-path"), el("span", file.status_zh || file.code || "改动", "badge"));
+
+      const diffBox = el("div", null, "diff-box");
+      diffBox.style.display = isOpen ? "block" : "none";
+      if (isOpen) {
+        const cached = state.openDiffs.get(file.path);
+        renderDiffContent(diffBox, cached.diff, cached.truncated);
+      }
+      btn.onclick = () => toggleFileDiff(file.path, diffBox, btn);
+      row.append(btn, diffBox);
+      group.append(row);
+    }
+    container.append(group);
+  }
+}
+
+function renderStatusTasks() {
+  const doc = (state.overview && state.overview.status_doc) || {};
+  byId("statusDocDate").textContent = doc.last_updated ? ("STATUS.md 更新于 " + doc.last_updated) : "";
+  const container = byId("statusTasksContainer");
+  container.replaceChildren();
+
+  const activeTasks = doc.active_tasks || [];
+  const openItems = doc.open_items || [];
+  if (!activeTasks.length && !openItems.length) {
+    container.append(el("p", "暂无记录中的进行中任务或待办项。", "muted"));
+    return;
+  }
+  for (const task of activeTasks) {
+    const card = el("div", null, "item-card");
+    const top = el("div", null, "bar");
+    top.append(el("strong", task.title || task.file), el("span", "进行中", "badge info"));
+    card.append(top);
+    if (task.file) card.append(el("small", task.file, "mono"));
+    if (task.excerpt) card.append(el("small", task.excerpt));
+    container.append(card);
+  }
+  for (const item of openItems) {
+    const card = el("div", null, "item-card");
+    const top = el("div", null, "bar");
+    top.append(el("strong", item.title || "待办事项"), el("span", "待办 / 延后", "badge warn"));
+    card.append(top);
+    if (item.summary) card.append(el("small", item.summary));
+    container.append(card);
+  }
+}
+
+function renderCommitsAndGithub() {
+  const repo = (state.overview && state.overview.repo) || {};
+  const commitsBox = byId("recentCommitsContainer");
+  commitsBox.replaceChildren();
+  const commits = repo.recent_commits || [];
+  if (!commits.length) {
+    commitsBox.append(el("p", "暂无最近提交记录。", "muted"));
+  } else {
+    for (const c of commits) {
+      const card = el("div", null, "item-card");
+      const top = el("div", null, "bar");
+      top.append(el("span", c.hash || "", "badge mono"), el("small", c.relative || c.date || ""));
+      card.append(top, el("span", c.subject || ""));
+      commitsBox.append(card);
+    }
+  }
+
+  const noticeBox = byId("githubStatusNotice");
+  const prBox = byId("githubPrContainer");
+  const ciBox = byId("githubCiContainer");
+  noticeBox.replaceChildren();
+  prBox.replaceChildren();
+  ciBox.replaceChildren();
+
+  const gh = state.github;
+  if (!gh) {
+    noticeBox.append(el("div", "正在加载 GitHub PR 与 CI 状态…", "notice"));
+    return;
+  }
+  if (gh.offline || !gh.available) {
+    noticeBox.append(el("div", gh.message_zh || "当前离线或无法连接 GitHub（不影响本地监控）", "notice warn"));
+    return;
+  }
+
+  const prs = gh.open_prs || [];
+  prBox.append(el("strong", "开放 Pull Requests (" + prs.length + ")", ""));
+  if (!prs.length) {
+    prBox.append(el("small", "当前没有开放中的 PR。", "muted"));
+  } else {
+    for (const pr of prs) {
+      const card = el("div", null, "item-card");
+      const top = el("div", null, "bar");
+      top.append(externalLink("#" + pr.number + " " + (pr.title || ""), pr.url), el("span", pr.headRefName || "", "badge mono"));
+      card.append(top);
+      if (pr.updatedAt) card.append(el("small", "更新：" + formatTime(pr.updatedAt)));
+      prBox.append(card);
+    }
+  }
+
+  const runs = gh.ci_runs || [];
+  ciBox.append(el("strong", "近期 CI 运行 (" + runs.length + ")", ""));
+  if (!runs.length) {
+    ciBox.append(el("small", "暂无近期 GitHub Actions 记录。", "muted"));
+  } else {
+    for (const run of runs) {
+      const card = el("div", null, "item-card");
+      const top = el("div", null, "bar");
+      const stateStr = run.conclusion || run.status || "unknown";
+      const lvl = stateStr === "success" ? "ok" : ((stateStr === "failure" || stateStr === "cancelled" || stateStr === "timed_out") ? "error" : "warn");
+      top.append(externalLink((run.workflowName || "Workflow") + " · " + (run.displayTitle || ("#" + run.databaseId)), run.url), levelBadge(lvl, stateStr));
+      card.append(top, el("small", (run.headBranch || "") + (run.createdAt ? (" · " + formatTime(run.createdAt)) : "")));
+      ciBox.append(card);
+    }
+  }
+}
+
+function renderSwarmBoards() {
+  const boards = (state.overview && state.overview.swarm && state.overview.swarm.boards) || [];
+  byId("swarmCountBadge").textContent = boards.length + " 个";
+  const container = byId("swarmBoardsContainer");
+  container.replaceChildren();
+  if (!boards.length) {
+    container.append(el("p", "暂未发现本地 Swarm / Teamwork 协作看板。可输入 manifest.json 路径手动探测。", "muted"));
+    return;
+  }
+  for (const b of boards) {
+    const card = el("div", null, "item-card");
+    const top = el("div", null, "bar");
+    top.append(el("strong", b.run || "未命名协作看板"), levelBadge(b.running ? "ok" : "warn", b.running ? "运行中" : "已停止"));
+    card.append(top);
+    if (b.manifest_path_display) card.append(el("small", b.manifest_path_display, "mono"));
+    const stats = "事件 " + Number(b.event_count || 0) + " · 页面访问 " + Number(b.ui_gets || 0) + " · 状态轮询 " + Number(b.state_polls || 0);
+    const bottom = el("div", null, "bar");
+    bottom.append(el("small", stats));
+    if (b.url) {
+      const link = externalLink("打开协作看板", b.url, "badge info");
+      bottom.append(link);
+    }
+    card.append(bottom);
+    container.append(card);
+  }
+}
+
+function renderSyncAssetCard(title, badgeText, badgeLvl, lines) {
+  const card = el("div", null, "subpanel stack");
+  card.style.gap = "8px";
+  const top = el("div", null, "bar");
+  top.append(el("h3", title), levelBadge(badgeLvl, badgeText));
+  card.append(top);
+  const body = el("div", null, "stack");
+  body.style.gap = "4px";
+  for (const line of lines) {
+    body.append(el("small", line));
+  }
+  card.append(body);
+  return card;
+}
+
+function normalizeItems(obj, keys) {
+  if (!obj) return [];
+  if (Array.isArray(obj)) return obj;
+  for (const k of keys) {
+    if (Array.isArray(obj[k])) return obj[k];
+  }
+  return [];
+}
+
+function renderSyncSection() {
+  const sync = state.syncStatus;
+  const grid = byId("syncCardsGrid");
+  grid.replaceChildren();
+  const note = byId("syncSummaryNote");
+
+  if (!sync) {
+    byId("syncSummaryBadge").className = "badge";
+    byId("syncSummaryBadge").textContent = "加载中";
+    byId("rawSyncJson").textContent = "正在加载双端状态…";
+    return;
+  }
+
+  const lvl = sync.summary_level || (sync.ok ? "ok" : "error");
+  byId("syncSummaryBadge").className = "badge " + levelClass(lvl);
+  byId("syncSummaryBadge").textContent = lvl === "ok" ? "正常" : (lvl === "warn" ? "需关注" : "异常");
+  byId("syncFetchedAt").textContent = sync.fetched_at ? ("采集于 " + formatTime(sync.fetched_at)) : "";
+
+  if (sync.summary_zh || sync.error) {
+    note.style.display = "block";
+    note.className = "notice " + (lvl === "ok" ? "ok" : (lvl === "warn" ? "warn" : "error"));
+    note.textContent = sync.summary_zh || sync.error;
+  } else {
+    note.style.display = "none";
+  }
+
+  // Card 1: Codex environment
+  const env = sync.environment || {};
+  const recorded = env.recorded || env.Recorded || "未记录";
+  const avail = Array.isArray(env.available || env.Available) ? (env.available || env.Available).join(" / ") : "work / full / minimal";
+  const envFailed = Boolean(env.failed || env.Failed || env.error || env.Error);
+  const envLines = [
+    "已记录环境：" + recorded,
+    "可选环境：" + avail,
+    env.reason || env.Reason ? ("说明：" + (env.reason || env.Reason)) : "提示：记录仅反映上次受管部署，请以预览为准"
+  ];
+  grid.append(renderSyncAssetCard("Codex 已记录环境", envFailed ? "异常" : recorded, envFailed ? "error" : (recorded === "未记录" ? "warn" : "ok"), envLines));
+
+  // Card 2: Global Rules (Codex & Antigravity)
+  const cfg = sync.config || {};
+  const cfgItems = normalizeItems(cfg, ["items", "Items"]);
+  let cfgInSync = 0;
+  let cfgDiff = 0;
+  const cfgLines = [];
+  if (cfgItems.length) {
+    for (const it of cfgItems) {
+      const st = it.status || it.Status || "";
+      if (st === "in-sync") cfgInSync++;
+      else cfgDiff++;
+      const plat = it.platform || it.Platform || "";
+      const name = it.item || it.Item || "规则";
+      cfgLines.push(plat + " · " + name + "：" + (it.status_zh || st || "未知"));
+    }
+  } else if (cfg.summary_zh || cfg.error || cfg.Error) {
+    cfgLines.push(cfg.summary_zh || cfg.error || cfg.Error);
+  } else {
+    cfgLines.push("暂无受管全局规则明细");
+  }
+  const cfgLvl = (cfg.error || cfg.Error) ? "error" : (cfgDiff > 0 ? "warn" : "ok");
+  grid.append(renderSyncAssetCard("全局规则与提示词", cfgDiff > 0 ? (cfgDiff + " 项有差异") : ("已同步 " + cfgInSync + " 项"), cfgLvl, cfgLines.slice(0, 4)));
+
+  // Card 3: Antigravity Plugins
+  const ag = sync.antigravity || {};
+  const agName = ag.name || ag.Name || "ai-agent-dotfiles";
+  const agVer = ag.version || ag.Version || "";
+  const agAction = ag.action || ag.Action || ag.status || "unknown";
+  const agExts = normalizeItems(ag, ["external", "externals", "ExternalExpectations"]);
+  const agLines = [
+    "主插件：" + agName + (agVer ? (" v" + agVer) : "") + " (" + (ag.action_zh || agAction) + ")"
+  ];
+  for (const ext of agExts.slice(0, 3)) {
+    agLines.push("外部插件 " + (ext.name || ext.Name) + "：" + (ext.action_zh || ext.action || ext.Action || ext.reason || ext.Reason || "未知"));
+  }
+  if (ag.error || ag.Error) agLines.push("错误：" + (ag.error || ag.Error));
+  const agLvl = (ag.error || ag.Error || agAction === "error" || agAction === "blocked") ? "error" : (agAction === "unchanged" ? "ok" : "warn");
+  grid.append(renderSyncAssetCard("Antigravity 插件", agAction === "unchanged" ? "已对齐" : agAction, agLvl, agLines));
+
+  // Card 4: Managed MCP
+  const mcpObj = sync.mcp || {};
+  const mcpItems = normalizeItems(mcpObj, ["items", "Items", "servers"]);
+  let mcpBlocked = 0;
+  let mcpPending = 0;
+  const mcpLines = [];
+  if (mcpItems.length) {
+    for (const it of mcpItems) {
+      const act = it.action || it.Action || "unknown";
+      if (act === "blocked") mcpBlocked++;
+      else if (act !== "unchanged") mcpPending++;
+      mcpLines.push((it.server || it.Server || "mcp") + " → " + (it.platform || it.Platform || "") + "：" + (it.action_zh || act));
+    }
+  } else if (mcpObj.error || mcpObj.Error) {
+    mcpLines.push("错误：" + (mcpObj.error || mcpObj.Error));
+  } else {
+    mcpLines.push("暂无受管 MCP 投影项");
+  }
+  const mcpLvl = (mcpObj.error || mcpObj.Error || mcpBlocked > 0) ? "error" : (mcpPending > 0 ? "warn" : "ok");
+  grid.append(renderSyncAssetCard("受管 MCP 服务器", mcpBlocked > 0 ? "被阻塞" : (mcpPending > 0 ? "待同步" : "已对齐"), mcpLvl, mcpLines.slice(0, 4)));
+
+  if (sync.raw_sanitized != null) {
+    byId("rawSyncJson").textContent = typeof sync.raw_sanitized === "string"
+      ? sync.raw_sanitized
+      : JSON.stringify(sync.raw_sanitized, null, 2);
+  } else {
+    byId("rawSyncJson").textContent = JSON.stringify(sync, null, 2);
+  }
+}
+
+function renderSkillsBrowser() {
+  const catalog = state.overview && state.overview.skills_catalog;
+  const grid = byId("skillsGrid");
+  grid.replaceChildren();
+  if (!catalog) {
+    byId("skillsTotalBadge").textContent = "0 项";
+    return;
+  }
+  const allSkills = catalog.skills || [];
+  const q = state.skillSearch.trim().toLowerCase();
+  const filtered = allSkills.filter(sk => {
+    if (state.skillFilter === "shared" && sk.scope !== "shared") return false;
+    if (state.skillFilter === "codex-only" && sk.scope !== "codex-only") return false;
+    if (state.skillFilter === "work" && !(sk.in_envs || []).includes("work")) return false;
+    if (state.skillFilter === "antigravity" && !sk.in_antigravity_plugin) return false;
+    if (!q) return true;
+    const hay = [sk.name, sk.scope_zh, sk.description, sk.path, ...(sk.in_envs || [])].join(" ").toLowerCase();
+    return hay.includes(q);
+  });
+
+  byId("skillsTotalBadge").textContent = filtered.length + " / " + (catalog.total ?? allSkills.length) + " 项";
+  if (!filtered.length) {
+    grid.append(el("p", "没有匹配当前筛选条件的技能。", "muted"));
+    return;
+  }
+  for (const sk of filtered) {
+    const card = el("button", null, "skill-card");
+    card.type = "button";
+    const top = el("div", null, "bar");
+    top.append(el("strong", sk.name), el("span", sk.scope_zh || sk.scope, "badge " + (sk.scope === "shared" ? "ok" : "info")));
+    card.append(top);
+
+    const tags = el("div", null, "row");
+    for (const envName of (sk.in_envs || [])) {
+      tags.append(el("span", envName, "badge"));
+    }
+    if (sk.in_antigravity_plugin) {
+      tags.append(el("span", "Antigravity 插件", "badge ok"));
+    }
+    card.append(tags);
+    card.append(el("p", sk.description || "暂无描述", "skill-desc"));
+    card.onclick = () => openSkillModal(sk.name);
+    grid.append(card);
+  }
+}
+
+async function openSkillModal(skillName) {
+  byId("skillModalTitle").textContent = skillName;
+  byId("skillModalMeta").textContent = "正在读取 SKILL.md…";
+  byId("skillModalBody").textContent = "加载中…";
+  byId("skillModalBackdrop").classList.add("open");
+  try {
+    const data = await apiGet("/api/skill?name=" + encodeURIComponent(skillName));
+    byId("skillModalTitle").textContent = data.name || skillName;
+    byId("skillModalMeta").textContent = (data.scope_zh || data.scope || "") + (data.path ? (" · " + data.path) : "");
+    byId("skillModalBody").textContent = data.content || "（文件内容为空）";
+  } catch (err) {
+    byId("skillModalMeta").textContent = "读取失败";
+    byId("skillModalBody").textContent = err.message;
+  }
+}
+
+function renderTestSuites() {
+  const select = byId("testSuiteSelect");
+  const prev = select.value;
+  select.replaceChildren();
+  const suites = (state.testSuites && state.testSuites.suites) || [];
+  if (!suites.length) {
+    select.add(new Option("暂无可用测试套件", ""));
+    byId("runSelectedSuiteBtn").disabled = true;
+    return;
+  }
+  for (const s of suites) {
+    const label = s.name + (s.timeout_sec ? (" (" + s.timeout_sec + "s)") : "");
+    select.add(new Option(label, s.name));
+  }
+  if (suites.some(s => s.name === prev)) select.value = prev;
+  updateActionDisabledState();
+}
+
+function renderDoctorChecks(structured) {
+  const wrap = el("div", null, "stack");
+  wrap.style.gap = "6px";
+  const checks = Array.isArray(structured.checks) ? structured.checks : [];
+  if (checks.length) {
+    const row = el("div", null, "row");
+    for (const chk of checks) {
+      if (typeof chk === "string") {
+        const m = chk.match(/^\[(PASS|WARN|FAIL|INFO)\]\s*(.*)$/i);
+        if (m) row.append(levelBadge(m[1].toUpperCase(), m[1].toUpperCase() + " " + m[2]));
+        else row.append(el("span", chk, "badge"));
+      } else {
+        const lvl = String(chk.level || "INFO").toUpperCase();
+        const txt = chk.label || chk.name || chk.message || chk.text || "";
+        row.append(levelBadge(lvl, lvl + " " + txt));
+      }
+    }
+    wrap.append(row);
+  }
+  const blockers = Array.isArray(structured.blockers) ? structured.blockers : [];
+  if (blockers.length) {
+    const box = el("div", null, "notice error");
+    box.append(el("strong", "部署阻断项："));
+    for (const b of blockers) {
+      box.append(el("div", typeof b === "string" ? b : JSON.stringify(b)));
+    }
+    wrap.append(box);
+  }
+  return wrap;
+}
+
+function renderJobsList() {
+  const container = byId("jobsListContainer");
+  container.replaceChildren();
+  const list = state.jobs.length ? state.jobs : ((state.overview && state.overview.recent_jobs) || []);
+  byId("jobsCountBadge").textContent = list.length + " 条";
+  if (!list.length) {
+    container.append(el("p", "本次会话尚未执行检查或同步任务。", "muted"));
+    return;
+  }
+  for (const summaryJob of list) {
+    const job = state.jobDetails.get(summaryJob.id) || summaryJob;
+    const card = el("div", null, "item-card");
+    const top = el("div", null, "bar");
+    const left = el("div", null, "row");
+    const stText = job.status === "running" ? "运行中" : (job.status === "succeeded" ? "成功" : "失败");
+    left.append(
+      levelBadge(job.status, stText),
+      el("strong", job.label_zh || job.kind || job.id)
+    );
+    if (job.duration_sec != null) left.append(el("span", Number(job.duration_sec).toFixed(2) + "s", "badge mono"));
+    if (job.exit_code != null) left.append(el("span", "exit " + job.exit_code, "badge mono"));
+    top.append(left);
+
+    const right = el("div", null, "row");
+    if (job.started_at) right.append(el("small", formatTime(job.started_at)));
+    if (job.status === "failed") {
+      const copyErrBtn = el("button", "复制报错给 AI 排查", "sm");
+      copyErrBtn.onclick = async () => {
+        const detailed = state.jobDetails.get(job.id) || await fetchJobDetail(job.id) || job;
+        const prompt = detailed.ai_prompt || ("执行任务 `" + (detailed.label_zh || detailed.kind) + "` 失败（exit " + detailed.exit_code + "），请帮我排查以下脱敏日志：\n\n" + (detailed.output_sanitized || detailed.summary_zh || ""));
+        copyText(prompt, "已复制，可直接粘贴给 AI");
+      };
+      right.append(copyErrBtn);
+    }
+    if (job.preview) {
+      const openPrevBtn = el("button", "查看预览结果", "sm");
+      openPrevBtn.onclick = () => openPreviewModal(job);
+      right.append(openPrevBtn);
+    }
+    top.append(right);
+    card.append(top);
+
+    if (job.summary_zh) card.append(el("small", job.summary_zh));
+    if (job.structured && (Array.isArray(job.structured.checks) || Array.isArray(job.structured.blockers))) {
+      card.append(renderDoctorChecks(job.structured));
+    }
+
+    const details = document.createElement("details");
+    const sum = el("summary", "展开脱敏输出日志");
+    const pre = el("pre", job.output_sanitized != null ? (job.output_sanitized || "（无输出）") : "展开后自动加载日志…", "log");
+    pre.style.marginTop = "6px";
+    details.append(sum, pre);
+    details.ontoggle = async () => {
+      if (details.open && job.output_sanitized == null) {
+        const full = await fetchJobDetail(job.id);
+        if (full) {
+          pre.textContent = full.output_sanitized || "（无输出）";
+        }
+      }
+    };
+    card.append(details);
+    container.append(card);
+  }
+}
+
+function openPreviewModal(job) {
+  state.currentPreviewJob = job;
+  const preview = job.preview || {};
+  const targetLabel = TARGET_LABELS[preview.target] || preview.target || job.label_zh || "同步预览";
+  byId("previewModalTitle").textContent = "同步预览：" + targetLabel;
+  byId("previewModalMeta").textContent = (preview.environment ? ("环境 " + preview.environment + " · ") : "")
+    + (preview.repo_head_sha ? ("基线 " + String(preview.repo_head_sha).slice(0, 8) + " · ") : "")
+    + (job.summary_zh || "");
+
+  const alertBox = byId("previewAlertBox");
+  alertBox.replaceChildren();
+  const isBlocked = Boolean(preview.blocked) || (preview.items || []).some(it => it.action === "blocked");
+  if (preview.has_prune) {
+    alertBox.append(el("div", "警告：此预览包含旧目录清理 (prune) 操作，请务必核对清单并确认！", "notice error"));
+  }
+  if (isBlocked) {
+    alertBox.append(el("div", "存在被阻断的变更项或前置条件未满足，禁止直接 Apply。请根据日志排查或复制给 AI 处理。", "notice error"));
+  } else if (preview.no_changes || (preview.can_apply === false && job.exit_code === 0)) {
+    alertBox.append(el("div", preview.summary_zh || "当前所有项目均已同步，无需执行写入。", "notice ok"));
+  } else if (!preview.can_apply) {
+    alertBox.append(el("div", "预览未能通过可执行检查（can_apply=false），无法执行写入。", "notice warn"));
+  }
+
+  const tableWrap = byId("previewTableWrap");
+  tableWrap.replaceChildren();
+  const items = preview.items || [];
+  if (items.length) {
+    const tbl = document.createElement("table");
+    const thead = document.createElement("thead");
+    const hrow = document.createElement("tr");
+    hrow.append(el("th", "操作"), el("th", "对象"), el("th", "说明"));
+    thead.append(hrow);
+    tbl.append(thead);
+
+    const tbody = document.createElement("tbody");
+    for (const it of items) {
+      const tr = document.createElement("tr");
+      const act = it.action || "";
+      const tdAct = document.createElement("td");
+      const lvl = act === "blocked" || act === "prune" ? "error" : (act === "unchanged" ? "ok" : "warn");
+      tdAct.append(levelBadge(lvl, it.action_zh || act || "变更"));
+      tr.append(tdAct, el("td", it.name || "--", "mono"), el("td", it.detail || ""));
+      tbody.append(tr);
+    }
+    tbl.append(tbody);
+    tableWrap.append(tbl);
+  } else {
+    tableWrap.append(el("p", "未解析到逐项变更条目，请展开下方原始预览日志核对。", "muted"));
+  }
+
+  const riskBox = byId("previewRiskBox");
+  riskBox.textContent = preview.risk_notice_zh || "执行写入只会修改受管目标并在本机保留备份；不会执行 Git 提交或推送。";
+  byId("previewRawLog").textContent = job.output_sanitized || "（无日志输出）";
+
+  const cb = byId("previewConfirmCheckbox");
+  cb.checked = false;
+  cb.disabled = !(preview.can_apply === true);
+  byId("previewConfirmLabel").style.display = preview.can_apply === true ? "flex" : "none";
+  syncApplyButtonState();
+  byId("previewModalBackdrop").classList.add("open");
+}
+
+async function fetchJobDetail(jobId) {
+  try {
+    const data = await apiGet("/api/jobs/" + encodeURIComponent(jobId));
+    const job = data.job || data;
+    state.jobDetails.set(job.id, job);
+    return job;
+  } catch {
+    return null;
+  }
+}
+
+async function refreshJobs() {
+  try {
+    const data = await apiGet("/api/jobs");
+    state.jobs = data.jobs || data || [];
+    renderJobsList();
+    updateActionDisabledState();
+  } catch {
+    // Keep existing list.
+  }
+}
+
+async function pollActiveJob(jobId) {
+  state.activeJobId = jobId;
+  updateActionDisabledState();
+  if (state.jobPollTimer) clearTimeout(state.jobPollTimer);
+
+  const step = async () => {
+    const job = await fetchJobDetail(jobId);
+    if (!job) {
+      state.activeJobId = null;
+      updateActionDisabledState();
+      return;
+    }
+    const idx = state.jobs.findIndex(j => j.id === job.id);
+    if (idx >= 0) state.jobs[idx] = job;
+    else state.jobs.unshift(job);
+    renderJobsList();
+
+    if (job.status === "running") {
+      state.jobPollTimer = setTimeout(step, 1000);
+      return;
+    }
+
+    state.activeJobId = null;
+    await refreshOverview();
+    await refreshJobs();
+    updateActionDisabledState();
+
+    if (job.preview && state.lastHandledPreviewJobId !== job.id) {
+      state.lastHandledPreviewJobId = job.id;
+      openPreviewModal(job);
+    } else if (typeof job.kind === "string" && job.kind.startsWith("apply:")) {
+      showToast(job.status === "succeeded" ? "写入完成，正在刷新双端状态…" : "写入失败，请查看执行日志");
+      await refreshSyncStatus(true);
+    } else {
+      showToast((job.label_zh || "任务") + (job.status === "succeeded" ? " 执行完成" : " 执行失败"));
+    }
+  };
+  await step();
+}
+
+async function triggerAction(action, extra) {
+  if (isJobBusy()) {
+    showToast("已有任务正在执行，请等待完成");
+    return;
+  }
+  try {
+    const payload = { action };
+    if (extra && extra.suite) payload.suite = extra.suite;
+    const res = await apiPost("/api/actions/run", payload);
+    const job = res.job;
+    if (job && job.id) {
+      state.jobDetails.set(job.id, job);
+      state.jobs.unshift(job);
+      renderJobsList();
+      showToast("已启动：" + (job.label_zh || action));
+      pollActiveJob(job.id);
+    }
+  } catch (err) {
+    showToast("启动失败：" + err.message);
+  }
+}
+
+async function triggerPreview(target, environment) {
+  if (isJobBusy()) {
+    showToast("已有任务正在执行，请等待完成");
+    return;
+  }
+  try {
+    const res = await apiPost("/api/sync/preview", { target, environment });
+    const job = res.job;
+    if (job && job.id) {
+      state.jobDetails.set(job.id, job);
+      state.jobs.unshift(job);
+      renderJobsList();
+      showToast("正在生成预览：" + (TARGET_LABELS[target] || target));
+      pollActiveJob(job.id);
+    }
+  } catch (err) {
+    showToast("预览请求失败：" + err.message);
+  }
+}
+
+async function triggerApply() {
+  const preview = state.currentPreviewJob && state.currentPreviewJob.preview;
+  if (!preview || !preview.can_apply || !byId("previewConfirmCheckbox").checked) return;
+  try {
+    const res = await apiPost("/api/sync/apply", {
+      preview_id: preview.preview_id,
+      confirm: true
+    });
+    byId("previewModalBackdrop").classList.remove("open");
+    const job = res.job;
+    if (job && job.id) {
+      state.jobDetails.set(job.id, job);
+      state.jobs.unshift(job);
+      renderJobsList();
+      showToast("已确认写入，正在执行 Apply…");
+      pollActiveJob(job.id);
+    }
+  } catch (err) {
+    showToast("执行写入被拒绝：" + err.message);
+  }
+}
+
+async function refreshOverview() {
+  try {
+    const data = await apiGet("/api/overview");
+    state.overview = data;
+    if (Array.isArray(data.recent_jobs)) {
+      state.jobs = data.recent_jobs.map(j => state.jobDetails.get(j.id) || j);
+    }
+    setConnectionState(true, "实时连接");
+    renderHeaderAndKpis();
+    renderAttention();
+    renderWorkspaceChanges();
+    renderStatusTasks();
+    renderCommitsAndGithub();
+    renderSwarmBoards();
+    renderSkillsBrowser();
+    renderJobsList();
+    updateActionDisabledState();
+    if (data.active_job && data.active_job.id && state.activeJobId !== data.active_job.id) {
+      pollActiveJob(data.active_job.id);
+    }
+  } catch (err) {
+    setConnectionState(false, "连接中断 · 重试中");
+  }
+}
+
+async function refreshSyncStatus(force) {
+  try {
+    const data = await apiGet("/api/sync-status" + (force ? "?refresh=1" : ""));
+    state.syncStatus = data;
+    renderHeaderAndKpis();
+    renderAttention();
+    renderSyncSection();
+  } catch (err) {
+    state.syncStatus = { ok: false, summary_level: "error", summary_zh: "同步状态读取失败：" + err.message };
+    renderHeaderAndKpis();
+    renderSyncSection();
+  }
+}
+
+async function refreshGithub(force) {
+  try {
+    const data = await apiGet("/api/github" + (force ? "?refresh=1" : ""));
+    state.github = data;
+    renderHeaderAndKpis();
+    renderCommitsAndGithub();
+  } catch (err) {
+    state.github = { available: false, offline: true, message_zh: "GitHub 查询失败：" + err.message, open_prs: [], ci_runs: [] };
+    renderHeaderAndKpis();
+    renderCommitsAndGithub();
+  }
+}
+
+async function refreshTestSuites() {
+  try {
+    const data = await apiGet("/api/test-suites");
+    state.testSuites = data;
+    renderTestSuites();
+  } catch {
+    renderTestSuites();
+  }
+}
+
+function scheduleOverviewPoll() {
+  if (state.pollTimer) clearTimeout(state.pollTimer);
+  if (!state.autoRefresh) return;
+  state.pollTimer = setTimeout(async () => {
+    await refreshOverview();
+    scheduleOverviewPoll();
+  }, 8000);
+}
+
+// Event Bindings
+byId("autoRefreshBtn").onclick = () => {
+  state.autoRefresh = !state.autoRefresh;
+  byId("autoRefreshBtn").setAttribute("aria-pressed", String(state.autoRefresh));
+  byId("autoRefreshBtn").textContent = state.autoRefresh ? "自动刷新：开启 (8s)" : "自动刷新：已暂停";
+  if (state.autoRefresh) {
+    refreshOverview();
+    scheduleOverviewPoll();
+  } else if (state.pollTimer) {
+    clearTimeout(state.pollTimer);
+  }
+};
+
+byId("fullRefreshBtn").onclick = async () => {
+  byId("fullRefreshBtn").disabled = true;
+  showToast("正在全面刷新仓库、同步与 GitHub…");
+  await Promise.all([refreshOverview(), refreshSyncStatus(true), refreshGithub(true), refreshJobs()]);
+  byId("fullRefreshBtn").disabled = false;
+  showToast("全面刷新完成");
+};
+
+byId("runningJobPill").onclick = () => byId("sec-jobs").scrollIntoView({ behavior: "smooth" });
+byId("refreshSyncBtn").onclick = () => refreshSyncStatus(true);
+byId("refreshGithubBtn").onclick = () => refreshGithub(true);
+byId("refreshJobsBtn").onclick = () => refreshJobs();
+
+byId("copyExplainDiffBtn").onclick = () => copyText(buildWorkspaceAiPrompt("explain"), "已复制，可直接粘贴给 AI");
+byId("copyReviewCommitBtn").onclick = () => copyText(buildWorkspaceAiPrompt("review"), "已复制，可直接粘贴给 AI");
+
+byId("swarmProbeForm").onsubmit = async (ev) => {
+  ev.preventDefault();
+  const input = byId("swarmManifestInput");
+  const notice = byId("swarmProbeNotice");
+  const pathVal = input.value.trim();
+  notice.replaceChildren();
+  if (!pathVal) {
+    notice.append(el("div", "请输入 manifest.json 路径。", "notice warn"));
+    return;
+  }
+  byId("swarmProbeBtn").disabled = true;
+  try {
+    const res = await apiPost("/api/swarm/probe", { manifest_path: pathVal });
+    const board = res.board || res;
+    notice.append(el("div", "已探测看板：" + (board.run || pathVal) + (board.running ? "（运行中）" : "（未运行）"), board.running ? "notice ok" : "notice warn"));
+    await refreshOverview();
+  } catch (err) {
+    notice.append(el("div", "探测失败：" + err.message, "notice error"));
+  } finally {
+    byId("swarmProbeBtn").disabled = false;
+  }
+};
+
+byId("skillSearchInput").oninput = (ev) => {
+  state.skillSearch = ev.target.value;
+  renderSkillsBrowser();
+};
+
+for (const btn of byId("skillFilterPills").querySelectorAll("button")) {
+  btn.onclick = () => {
+    state.skillFilter = btn.dataset.filter;
+    for (const other of byId("skillFilterPills").querySelectorAll("button")) {
+      other.setAttribute("aria-pressed", String(other === btn));
+    }
+    renderSkillsBrowser();
+  };
+}
+
+for (const btn of document.querySelectorAll(".js-action-btn")) {
+  btn.onclick = () => {
+    const action = btn.dataset.action;
+    if (action === "test-suite") {
+      const suite = byId("testSuiteSelect").value;
+      if (!suite) {
+        showToast("请先选择一个测试套件");
+        return;
+      }
+      triggerAction("test-suite", { suite });
+    } else {
+      triggerAction(action);
+    }
+  };
+}
+
+for (const btn of document.querySelectorAll(".js-preview-btn")) {
+  btn.onclick = () => triggerPreview(btn.dataset.target, byId("syncEnvSelect").value);
+}
+
+byId("previewConfirmCheckbox").onchange = syncApplyButtonState;
+byId("applyPreviewBtn").onclick = triggerApply;
+byId("copyPreviewToAiBtn").onclick = () => {
+  const job = state.currentPreviewJob;
+  if (!job) return;
+  const preview = job.preview || {};
+  const lines = (preview.items || []).map(it => "- [" + (it.action_zh || it.action) + "] " + it.name + (it.detail ? (" — " + it.detail) : ""));
+  const prompt = "请帮我评估以下同步预览结果，判断是否安全可执行 Apply：\n目标："
+    + (TARGET_LABELS[preview.target] || preview.target || job.label_zh)
+    + (preview.environment ? ("（环境：" + preview.environment + "）") : "")
+    + "\n摘要：" + (job.summary_zh || preview.summary_zh || "")
+    + "\n变更清单：\n" + (lines.join("\n") || "（无逐项条目）")
+    + "\n\n原始脱敏日志：\n" + (job.output_sanitized || "");
+  copyText(prompt, "已复制，可直接粘贴给 AI");
+};
+
+byId("closeSkillModalBtn").onclick = () => byId("skillModalBackdrop").classList.remove("open");
+byId("skillModalBackdrop").onclick = (ev) => {
+  if (ev.target === byId("skillModalBackdrop")) byId("skillModalBackdrop").classList.remove("open");
+};
+
+const closePreviewModal = () => byId("previewModalBackdrop").classList.remove("open");
+byId("closePreviewModalBtn").onclick = closePreviewModal;
+byId("cancelPreviewBtn").onclick = closePreviewModal;
+byId("previewModalBackdrop").onclick = (ev) => {
+  if (ev.target === byId("previewModalBackdrop")) closePreviewModal();
+};
+
+document.addEventListener("keydown", (ev) => {
+  if (ev.key === "Escape") {
+    byId("skillModalBackdrop").classList.remove("open");
+    byId("previewModalBackdrop").classList.remove("open");
+  }
+});
+
+// Initial Load
+(async function init() {
+  await refreshOverview();
+  Promise.all([refreshSyncStatus(false), refreshGithub(false), refreshTestSuites(), refreshJobs()]);
+  scheduleOverviewPoll();
+})();
+</script>
+</body>
+</html>

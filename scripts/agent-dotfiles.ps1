@@ -9,7 +9,7 @@
     through unchanged and are not echoed by the wrapper.
 
 .PARAMETER Command
-    One of: help, doctor, build, scan, sync, config, profile, skills, env, antigravity, mcp, or status.
+    One of: help, doctor, build, scan, sync, config, profile, skills, env, antigravity, mcp, status, or dashboard.
 
 .EXAMPLE
     pwsh -File scripts/agent-dotfiles.ps1 doctor -SkipSecretsScan
@@ -46,6 +46,14 @@ function Write-Usage([string] $Group) {
             Write-Host 'Examples: status; status -Json'
             Write-Host 'Options: -Json, -RepoRoot <path>, -HomeRoot <path>, -StateRoot <path>.'
             Write-Host 'The status command is strictly read-only and accepts no -DryRun or -Apply mode.'
+            return
+        }
+        if ($Group -eq 'dashboard') {
+            Write-Host 'Usage: pwsh -File scripts/agent-dotfiles.ps1 dashboard [-Port <port>] [-NoBrowser] [-Check] [-Offline] [-RepoRoot <path>] [-HomeRoot <path>] [-StateRoot <path>]'
+            Write-Host 'dashboard: launches or reuses the local Chinese web monitoring console bound to 127.0.0.1.'
+            Write-Host 'Examples: dashboard; dashboard -NoBrowser; dashboard -Port 8765 -Offline; dashboard -Check'
+            Write-Host 'Options: -Port <port>, -NoBrowser, -Check, -Offline, -RepoRoot <path>, -HomeRoot <path>, -StateRoot <path>.'
+            Write-Host 'Mutating sync actions inside the console always require a DryRun preview and explicit confirmation before Apply.'
             return
         }
         Write-Host "Usage: pwsh -File scripts/agent-dotfiles.ps1 $Group <action> [arguments]"
@@ -95,8 +103,9 @@ function Write-Usage([string] $Group) {
         return
     }
     Write-Host 'Usage: pwsh -File scripts/agent-dotfiles.ps1 <command> [arguments]'
-    Write-Host 'Commands: help, doctor, build, scan, sync, config, profile, skills, env, antigravity, mcp, status'
+    Write-Host 'Commands: help, doctor, build, scan, sync, config, profile, skills, env, antigravity, mcp, status, dashboard'
     Write-Host 'Status actions: status [-Json] aggregates env list, config status, antigravity status, and mcp status.'
+    Write-Host 'Dashboard actions: dashboard [-Port <port>] [-NoBrowser] [-Check] [-Offline] launches the local Chinese web monitoring console.'
     Write-Host 'Antigravity actions: build, status, deploy -DryRun|-Apply; separate from sync and env deploy.'
     Write-Host 'MCP actions: status, deploy -DryRun|-Apply; separate from sync and requires -DryRun or -Apply.'
     Write-Host 'Sync runs deploy.ps1 (skills plus config) and requires exactly one explicit mode: -DryRun or -Apply.'
@@ -106,7 +115,7 @@ function Write-Usage([string] $Group) {
     Write-Host 'Env actions: list [-RepoRoot <path>] [-StateRoot <path>] [-JsonPath <file>], deploy <name> -DryRun|-Apply.'
     Write-Host 'sync, env deploy, antigravity deploy, mcp deploy, config pull/push, profile apply, and skills promote require exactly one explicit mode: -DryRun or -Apply.'
     Write-Host 'build generates output; env list -JsonPath writes a report without a mode.'
-    Write-Host 'Group help: help config (or config help); also env, profile, skills, antigravity and mcp.'
+    Write-Host 'Group help: help config (or config help); also status, dashboard, env, profile, skills, antigravity and mcp.'
 }
 
 function ConvertTo-ExplicitModeArguments([object[]] $Arguments, [string] $Label) {
@@ -580,8 +589,8 @@ if ([string]::IsNullOrWhiteSpace($Command)) {
 if ($Command -ieq 'help') {
     $topics = @($RemainingArguments | Where-Object { $null -ne $_ })
     if ($topics.Count -eq 0) { Write-Usage; exit 0 }
-    if ($topics.Count -ne 1 -or $topics[0] -notin @('config', 'env', 'profile', 'skills', 'antigravity', 'mcp', 'status')) {
-        Write-Error 'Unsupported help topic. Use help config, help env, help profile, help skills, help antigravity, help mcp, or help status.' -ErrorAction Continue
+    if ($topics.Count -ne 1 -or $topics[0] -notin @('config', 'env', 'profile', 'skills', 'antigravity', 'mcp', 'status', 'dashboard')) {
+        Write-Error 'Unsupported help topic. Use help config, help env, help profile, help skills, help antigravity, help mcp, help status, or help dashboard.' -ErrorAction Continue
         exit 1
     }
     Write-Usage ([string] $topics[0]).ToLowerInvariant()
@@ -589,11 +598,12 @@ if ($Command -ieq 'help') {
 }
 
 $commandMap = @{
-    doctor = 'doctor.ps1'
-    build  = 'build-skills.ps1'
-    scan   = 'scan-secrets.ps1'
-    sync   = 'deploy.ps1'
-    status = $null
+    doctor    = 'doctor.ps1'
+    build     = 'build-skills.ps1'
+    scan      = 'scan-secrets.ps1'
+    sync      = 'deploy.ps1'
+    status    = $null
+    dashboard = 'dashboard.ps1'
 }
 
 $groupCommandMaps = @{
@@ -639,6 +649,12 @@ if ($normalizedCommand -eq 'status') {
         exit 0
     }
     Invoke-UnifiedStatus $forwardedArguments
+}
+if ($normalizedCommand -eq 'dashboard') {
+    if ($forwardedArguments.Count -eq 1 -and [string]$forwardedArguments[0] -ieq 'help') {
+        Write-Usage 'dashboard'
+        exit 0
+    }
 }
 $groupAction = $null
 if ($groupCommandMaps.ContainsKey($normalizedCommand)) {
@@ -946,7 +962,9 @@ for ($i = 0; $i -lt $forwardedArguments.Count; $i++) {
     $normalizedForward.Add($item)
 }
 $forwardList = @($normalizedForward)
-$jsonStdout = ($normalizedCommand -eq 'antigravity') -or (@($forwardList | Where-Object { $_ -is [string] -and $_ -ieq '-Json' }).Count -gt 0)
+$jsonStdout = ($normalizedCommand -eq 'antigravity') -or
+    ($normalizedCommand -eq 'dashboard' -and (@($forwardList | Where-Object { $_ -is [string] -and $_ -ieq '-Check' }).Count -gt 0)) -or
+    (@($forwardList | Where-Object { $_ -is [string] -and $_ -ieq '-Json' }).Count -gt 0)
 if (-not $jsonStdout) {
     Write-Host "Invoking script: $targetScript"
 }

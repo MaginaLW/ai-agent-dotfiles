@@ -10,6 +10,7 @@
 | 第一次在新电脑安装 | 下方“首次安装”及[新电脑接入说明](docs/ONBOARD_NEW_MACHINE.md) |
 | 更新当前电脑 | 下方“日常更新” |
 | 只检查，不部署 | 下方“查看状态与帮助” |
+| 打开本地可视化监控台 | 下方“[可视化监控台](#可视化监控台)”及[手册 §17](docs/README.md#17-本地可视化监控台dashboard) |
 | 部署失败或想恢复旧内容 | 下方“失败与恢复”及[手册 §8](docs/README.md#8-备份与恢复) |
 | 使用 Antigravity 插件 | [手册 §15](docs/README.md#15-antigravity-插件) |
 | 同步受管 MCP servers | 下方“受管 MCP 分发”及[手册 §16](docs/README.md#16-受管-mcp-分发mcp-sync) |
@@ -87,6 +88,18 @@ pwsh -NoProfile -File scripts/agent-dotfiles.ps1 help config
 `config help` 与 `help config` 等价；`status`、`env`、`profile`、`skills`、`antigravity`、`mcp` 也支持分组帮助。
 `config pull` 是仓库 → 本机，`config push` 是本机 → 仓库的配置捕获，和 Git push 无关。
 捕获的 diff 必须由人审查后才能提交。`env list -JsonPath <file>` 会写报告文件，属于只读列表的显式写出例外。
+
+## 可视化监控台
+
+双击仓库根目录的 `start-dashboard.cmd`（也可将其创建为桌面快捷方式一键启动，关闭任务栏中的对应窗口即可停止本地服务），或运行统一 CLI 启动本地中文监控台：
+
+```powershell
+pwsh -NoProfile -File scripts/agent-dotfiles.ps1 dashboard
+pwsh -NoProfile -File scripts/agent-dotfiles.ps1 dashboard -NoBrowser -Offline
+pwsh -NoProfile -File scripts/agent-dotfiles.ps1 dashboard -Check
+```
+
+监控台仅监听本机回环 `127.0.0.1` 并启用会话 Token 校验；可查看工作区改动与 Diff、`STATUS.md` 待办、GitHub PR/CI、Swarm 看板与双端同步状态。涉及本机写入的同步操作强制“先 `-DryRun` 预览 → 核对变更并勾选确认 → 再执行 `-Apply`”，高风险 Git 提交/推送、`config push` 与 `-Retire` 仍由 AI 对话把关，详见[手册 §17](docs/README.md#17-本地可视化监控台dashboard)。
 
 ## 失败与恢复
 
