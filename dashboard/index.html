@@ -1152,7 +1152,7 @@ function renderDiffContent(container, diffText, truncated) {
     container.append(el("span", line, cls));
   }
   if (truncated) {
-    container.append(el("small", "（内容过长，已截断显示前 8KB）", "muted"));
+    container.append(el("small", "（内容过长，已截断，仅展示部分预览）", "muted"));
   }
 }
 
@@ -1777,7 +1777,7 @@ async function pollActiveJob(jobId) {
     if (job.preview && state.lastHandledPreviewJobId !== job.id) {
       state.lastHandledPreviewJobId = job.id;
       openPreviewModal(job);
-    } else if (job.kind === "sync-apply") {
+    } else if (typeof job.kind === "string" && job.kind.startsWith("apply:")) {
       showToast(job.status === "succeeded" ? "写入完成，正在刷新双端状态…" : "写入失败，请查看执行日志");
       await refreshSyncStatus(true);
     } else {
