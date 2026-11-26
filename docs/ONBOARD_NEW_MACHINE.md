@@ -124,7 +124,21 @@ pwsh -NoProfile -File .\scripts\agent-dotfiles.ps1 mcp status
 
 See [docs/README.md §16](README.md#16-受管-mcp-分发mcp-sync) for per-client projection targets, unmanaged-entry preservation, and backup recovery.
 
-## 6. Optional: remove skills an older setup left
+## 6. Verify status and optional local dashboard
+
+Run one read-only command to verify the recorded environment, configuration blocks, Antigravity plugins, and managed MCP status:
+
+```powershell
+pwsh -NoProfile -File .\scripts\agent-dotfiles.ps1 status
+```
+
+Optionally, launch the loopback-only Chinese web monitoring console via `start-dashboard.cmd` or the CLI wrapper:
+
+```powershell
+pwsh -NoProfile -File .\scripts\agent-dotfiles.ps1 dashboard
+```
+
+## 7. Optional: remove skills an older setup left
 
 If the skill dry run shows `unknown` directories that an older setup deployed and that are no
 longer wanted, name them with `-Retire` in a skills-only dry run, review the `prune` lines, then
