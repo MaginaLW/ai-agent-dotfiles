@@ -570,6 +570,6 @@ pwsh -NoProfile -File scripts/agent-dotfiles.ps1 dashboard -Check
 安全边界与写入门禁：
 
 - **仅限本机回环与 CSRF 防护**：服务端仅绑定 `127.0.0.1`（拒绝非回环主机），运行时状态 `server.json` 仅写入仓库下忽略的 `tmp/dashboard/`（拒绝符号链接/重解析点）。每次启动生成随机会话 Token（`X-Dashboard-Token`），所有 `POST` 请求必须同时通过 Token、`Host` 与 `Origin` 校验（不匹配返回 HTTP 403），前端严格禁止使用 `innerHTML` 插入非信任文本，API 响应与复制指令均对用户主目录与仓库绝对路径做脱敏处理。
-- **强制先预览后确认（DryRun -> Apply）**：所有写入本机的同步按钮（Codex 完整/仅技能同步、Antigravity 全局规则/插件部署、受管 MCP 同步）只能先触发 `-DryRun` 预览。预览成功后生成绑定当前 `git HEAD`、300 秒有效且单次消费的 `preview_id`；若出现 `blocked`、需重建插件包、当前已全部同步无变更或提交记录发生变化，Apply 按钮保持禁用或被后端拒绝。只有在预览无阻塞、存在待变更项且人工勾选确认框后，才允许执行对应的 `-Apply`，完成后自动刷新状态读回。
+- **强制先预览后确认（DryRun -> Apply）**：所有写入本机的同步按钮（Codex 完整/仅技能同步、Antigravity 全局规则/插件部署、受管 MCP 同步）只能先触发 `-DryRun` 预览。预览成功后生成绑定当前 `git HEAD` 与受管工作区源码指纹、300 秒有效且原子单次消费的 `preview_id`；若出现 `blocked`、需重建插件包、当前已全部同步无变更或提交记录/受管源码指纹发生变化，Apply 按钮保持禁用或被后端拒绝。只有在预览无阻塞、存在待变更项且人工勾选确认框后，才允许执行对应的 `-Apply`，完成后自动刷新状态读回。
 - **高风险操作边界**：Git 提交/推送、`config push`（本机回抓）与 `-Retire`（删除旧技能）不提供面板一键写入，仍须在 AI 对话中审查后执行。
-- 回归测试：`pwsh -NoProfile -File tests/dashboard.tests.ps1` 与 `python -B -m unittest tests/dashboard_server_test.py -v`。
+- 回归测试：`pwsh -NoProfile -File scripts/run-tests.ps1 -Suite dashboard`（或直接运行 `pwsh -NoProfile -File tests/dashboard.tests.ps1`）会同时执行 `tests/dashboard_server_test.py` 单元测试与隔离 PowerShell 集成测试。

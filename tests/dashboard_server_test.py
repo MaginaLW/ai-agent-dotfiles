@@ -9,6 +9,8 @@ import io
 import json
 import os
 from pathlib import Path
+import re
+import signal
 import sys
 import tempfile
 import threading
@@ -593,6 +595,511 @@ class DashboardServerTests(unittest.TestCase):
                 self._request(port, "POST", "/api/swarm/probe", headers=hdrs, body={"manifest_path": "tmp/missing/manifest.json"})[0],
                 400,
             )
+
+    def test_workspace_fingerprint_excludes_generated_and_catches_source_drift(self) -> None:
+        generated_skill = self.repo / "codex" / "skills" / "git-review"
+        generated_skill.mkdir(parents=True)
+        (generated_skill / "SKILL.md").write_text("# generated v1\n", encoding="utf-8")
+        (self.repo / "manifests").mkdir(exist_ok=True)
+        (self.repo / "manifests" / "managed-skills.codex.txt").write_text("git-review\n", encoding="utf-8")
+        (self.repo / "manifests" / "whitelist.psd1").write_text("@{ PullItems = @('AGENTS.md') }\n", encoding="utf-8")
+
+        status_lines = [
+            "## main...origin/main",
+            "?? skills-source/shared/git-review/SKILL.md",
+            "?? codex/skills/git-review/SKILL.md",
+            "?? manifests/managed-skills.codex.txt",
+            " M manifests/whitelist.psd1",
+        ]
+        preview_entered = threading.Event()
+        preview_gate = threading.Event()
+        mutate_during_preview = {"enabled": False}
+
+        def _fp_handler(argv: list[str], cwd: Path, timeout: float):
+            exe = Path(argv[0]).name.lower()
+            if exe == "git" and "status" in argv:
+                return srv.RunResult(0, "\n".join(status_lines) + "\n", "")
+            if "deploy-skills.ps1" in " ".join(argv) and "-Apply" not in argv:
+                if mutate_during_preview["enabled"]:
+                    preview_entered.set()
+                    preview_gate.wait(timeout=2.0)
+                return srv.RunResult(
+                    0,
+                    "Codex install git-review\nPlan summary: install=1  update=0  unchanged=0  prune=0  unknown=0\n",
+                    "",
+                )
+            return None
+
+        self.custom_handlers.append(_fp_handler)
+        with self._running_server() as (_server, app, port):
+            hdrs = {"X-Dashboard-Token": app.token}
+            fp1 = app._compute_managed_workspace_fingerprint()
+
+            # Generated outputs must NOT alter the managed workspace fingerprint
+            (generated_skill / "SKILL.md").write_text("# generated v2\n", encoding="utf-8")
+            (self.repo / "manifests" / "managed-skills.codex.txt").write_text("git-review\nswarm\n", encoding="utf-8")
+            self.assertEqual(app._compute_managed_workspace_fingerprint(), fp1)
+
+            # Managed source file edit MUST alter the fingerprint
+            (self.repo / "skills-source" / "shared" / "git-review" / "SKILL.md").write_text(
+                "---\nname: git-review\ndescription: Edited.\n---\n",
+                encoding="utf-8",
+            )
+            fp2 = app._compute_managed_workspace_fingerprint()
+            self.assertNotEqual(fp2, fp1)
+
+            # Preview -> source drift before apply -> 409
+            st_p, _, raw_p = self._request(
+                port,
+                "POST",
+                "/api/sync/preview",
+                headers=hdrs,
+                body={"target": "codex-skills", "environment": "work"},
+            )
+            self.assertEqual(st_p, 202)
+            job_p = self._wait_job(port, json.loads(raw_p.decode("utf-8"))["job"]["id"])
+            self.assertTrue(job_p["preview"]["can_apply"])
+            self.assertFalse(job_p["preview"]["blocked"])
+            self.assertEqual(job_p["preview"]["workspace_fingerprint"], fp2[:12])
+
+            (self.repo / "manifests" / "whitelist.psd1").write_text("@{ PullItems = @('AGENTS.md', 'rules') }\n", encoding="utf-8")
+            st_drift, _, raw_drift = self._request(
+                port,
+                "POST",
+                "/api/sync/apply",
+                headers=hdrs,
+                body={"preview_id": job_p["preview"]["preview_id"], "confirm": True},
+            )
+            self.assertEqual(st_drift, 409)
+            self.assertIn("源码", json.loads(raw_drift.decode("utf-8"))["error"])
+
+            # Drift DURING preview forces blocked=True, can_apply=False
+            mutate_during_preview["enabled"] = True
+            st_p2, _, raw_p2 = self._request(
+                port,
+                "POST",
+                "/api/sync/preview",
+                headers=hdrs,
+                body={"target": "codex-skills", "environment": "work"},
+            )
+            self.assertEqual(st_p2, 202)
+            self.assertTrue(preview_entered.wait(timeout=2.0))
+            (self.repo / "skills-source" / "shared" / "git-review" / "SKILL.md").write_text(
+                "---\nname: git-review\ndescription: Mutated mid-preview.\n---\n",
+                encoding="utf-8",
+            )
+            preview_gate.set()
+            job_p2 = self._wait_job(port, json.loads(raw_p2.decode("utf-8"))["job"]["id"])
+            self.assertTrue(job_p2["preview"]["blocked"])
+            self.assertFalse(job_p2["preview"]["can_apply"])
+            self.assertFalse(job_p2["preview"]["no_changes"])
+            self.assertIn("预览执行期间", job_p2["preview"]["summary_zh"])
+            self.assertEqual(
+                self._request(
+                    port,
+                    "POST",
+                    "/api/sync/apply",
+                    headers=hdrs,
+                    body={"preview_id": job_p2["preview"]["preview_id"], "confirm": True},
+                )[0],
+                400,
+            )
+
+    def test_apply_busy_409_does_not_consume_preview_and_concurrent_apply_is_single_flight(self) -> None:
+        scan_entered = threading.Event()
+        scan_gate = threading.Event()
+        apply_entered = threading.Event()
+        apply_gate = threading.Event()
+        apply_calls: list[list[str]] = []
+
+        def _handler(argv: list[str], cwd: Path, timeout: float):
+            joined = " ".join(argv)
+            if "scan-secrets.ps1" in joined:
+                scan_entered.set()
+                scan_gate.wait(timeout=2.0)
+                return srv.RunResult(0, "clean\n", "")
+            if "deploy-skills.ps1" in joined:
+                if "-Apply" in argv:
+                    apply_calls.append(list(argv))
+                    apply_entered.set()
+                    apply_gate.wait(timeout=2.0)
+                    return srv.RunResult(0, "Applied\n", "")
+                return srv.RunResult(
+                    0,
+                    "Codex install git-review\nPlan summary: install=1  update=0  unchanged=0  prune=0  unknown=0\n",
+                    "",
+                )
+            return None
+
+        self.custom_handlers.append(_handler)
+        with self._running_server() as (_server, app, port):
+            hdrs = {"X-Dashboard-Token": app.token}
+            st_p, _, raw_p = self._request(
+                port,
+                "POST",
+                "/api/sync/preview",
+                headers=hdrs,
+                body={"target": "codex-skills", "environment": "work"},
+            )
+            self.assertEqual(st_p, 202)
+            pid = self._wait_job(port, json.loads(raw_p.decode("utf-8"))["job"]["id"])["preview"]["preview_id"]
+
+            # Busy job must return 409 WITHOUT consuming preview
+            st_s, _, raw_s = self._request(port, "POST", "/api/actions/run", headers=hdrs, body={"action": "scan"})
+            self.assertEqual(st_s, 202)
+            self.assertTrue(scan_entered.wait(timeout=2.0))
+            st_busy, _, _ = self._request(
+                port,
+                "POST",
+                "/api/sync/apply",
+                headers=hdrs,
+                body={"preview_id": pid, "confirm": True},
+            )
+            self.assertEqual(st_busy, 409)
+            self.assertFalse(app._previews[pid].consumed)
+            scan_gate.set()
+            self._wait_job(port, json.loads(raw_s.decode("utf-8"))["job"]["id"])
+
+            # Concurrent apply requests against same preview_id -> only one wins
+            results: list[int] = []
+            barrier = threading.Barrier(2)
+
+            def _fire() -> None:
+                barrier.wait(timeout=2.0)
+                st, _, _ = self._request(
+                    port,
+                    "POST",
+                    "/api/sync/apply",
+                    headers=hdrs,
+                    body={"preview_id": pid, "confirm": True},
+                )
+                results.append(st)
+
+            t1 = threading.Thread(target=_fire)
+            t2 = threading.Thread(target=_fire)
+            t1.start()
+            t2.start()
+            self.assertTrue(apply_entered.wait(timeout=2.0))
+            apply_gate.set()
+            t1.join(timeout=2.0)
+            t2.join(timeout=2.0)
+            self.assertEqual(sorted(results), [202, 409])
+            self.assertEqual(len(apply_calls), 1)
+            self.assertTrue(app._previews[pid].consumed)
+
+    def test_preview_output_enrichment_skills_and_antigravity(self) -> None:
+        def _handler(argv: list[str], cwd: Path, timeout: float):
+            if "deploy-skills.ps1" in " ".join(argv):
+                out = "\n".join([
+                    "Codex install git-review",
+                    "Codex update swarm",
+                    "Plan summary: install=1  update=1  unchanged=0  prune=0  unknown=0",
+                    "File changes for Codex/git-review:",
+                    "  add     SKILL.md",
+                    "  change  refs/guide.md",
+                    "File changes for Codex/swarm:",
+                    "  add     a.md",
+                    "  add     b.md",
+                    "  change  c.md",
+                    "  remove  d.md",
+                    "  change  e.md",
+                    "Update not recorded in deploy state: Codex/swarm. Existing content will be backed up.",
+                    "Possible interrupted deployment remnants (inspect before applying):",
+                    f"  Codex: {FAKE_USER_DIR}\\.codex\\skills\\.deploying-swarm",
+                ])
+                return srv.RunResult(0, out, "")
+            if "antigravity" in argv and "deploy" in argv:
+                payload = {
+                    "Name": "ai-agent-dotfiles",
+                    "Version": "0.5.0",
+                    "Action": "update",
+                    "Reason": "version-upgrade",
+                    "ApplyRequirement": "none",
+                    "Changes": {
+                        "Added": ["skills/new/SKILL.md"],
+                        "Changed": ["plugin.json", "skills/git-review/SKILL.md"],
+                        "Removed": [],
+                    },
+                    "ExternalExpectations": [
+                        {
+                            "Name": "chrome-devtools-plugin",
+                            "State": "missing",
+                            "Action": "blocked",
+                            "Reason": "install-would-enable",
+                        },
+                        {
+                            "Name": "other-ext",
+                            "State": "unchanged",
+                            "Action": "unchanged",
+                            "Reason": "identity-source-and-enabled-match",
+                        },
+                    ],
+                }
+                return srv.RunResult(0, json.dumps(payload), "")
+            return None
+
+        self.custom_handlers.append(_handler)
+        with self._running_server() as (_server, app, port):
+            hdrs = {"X-Dashboard-Token": app.token}
+            st1, _, raw1 = self._request(
+                port,
+                "POST",
+                "/api/sync/preview",
+                headers=hdrs,
+                body={"target": "codex-skills", "environment": "work"},
+            )
+            self.assertEqual(st1, 202)
+            p1 = self._wait_job(port, json.loads(raw1.decode("utf-8"))["job"]["id"])["preview"]
+            by_name = {it["name"]: it for it in p1["items"]}
+            self.assertEqual(by_name["Codex/git-review"]["detail"], "变更 2 项：add SKILL.md, change refs/guide.md")
+            self.assertEqual(
+                by_name["Codex/swarm"]["detail"],
+                "变更 5 项：add a.md, add b.md, change c.md, remove d.md 等共 5 项",
+            )
+            self.assertIn("未记录在部署状态中", p1["risk_notice_zh"])
+            self.assertIn("中断部署", p1["risk_notice_zh"])
+
+            st2, _, raw2 = self._request(
+                port,
+                "POST",
+                "/api/sync/preview",
+                headers=hdrs,
+                body={"target": "antigravity-plugin"},
+            )
+            self.assertEqual(st2, 202)
+            p2 = self._wait_job(port, json.loads(raw2.decode("utf-8"))["job"]["id"])["preview"]
+            self.assertTrue(p2["can_apply"])
+            self.assertFalse(p2["blocked"])
+            ag_by_name = {it["name"]: it for it in p2["items"]}
+            self.assertIn("v0.5.0", ag_by_name["ai-agent-dotfiles"]["detail"])
+            self.assertIn("新增 1 / 修改 2", ag_by_name["ai-agent-dotfiles"]["detail"])
+            self.assertIn("外部插件/chrome-devtools-plugin", ag_by_name)
+            self.assertIn("只读", ag_by_name["外部插件/chrome-devtools-plugin"]["action_zh"])
+            self.assertIn("外部插件/other-ext", ag_by_name)
+
+    def test_sync_status_external_expectations_home_only_and_ci_branch_dedup(self) -> None:
+        sync_case = {"ext_state": "missing", "ext_action": "blocked"}
+        ci_runs_case = {
+            "runs": [
+                {
+                    "databaseId": 100,
+                    "workflowName": "Validate",
+                    "status": "completed",
+                    "conclusion": "failure",
+                    "headBranch": "main",
+                    "displayTitle": "Old failed main run",
+                    "createdAt": "2026-11-25T10:00:00Z",
+                },
+                {
+                    "databaseId": 101,
+                    "workflowName": "Validate",
+                    "status": "completed",
+                    "conclusion": "success",
+                    "headBranch": "main",
+                    "displayTitle": "Latest passing main run",
+                    "createdAt": "2026-11-26T10:00:00Z",
+                },
+            ]
+        }
+
+        def _handler(argv: list[str], cwd: Path, timeout: float):
+            if "status" in argv and "-Json" in argv:
+                payload = {
+                    "SchemaVersion": 1,
+                    "Environment": {"Recorded": "work", "Available": ["work"], "Failed": False},
+                    "Config": [
+                        {"Platform": "Codex", "Item": "AGENTS.md", "Status": "in-sync", "Detail": "ok"},
+                        {"Platform": "Codex", "Item": "extra.md", "Status": "home-only", "Detail": "local"},
+                    ],
+                    "Antigravity": {
+                        "Name": "ai-agent-dotfiles",
+                        "Version": "0.4.1",
+                        "Action": "unchanged",
+                        "Reason": "identity-version-and-content-match",
+                        "ExternalExpectations": [
+                            {
+                                "Name": "ext-tool",
+                                "State": sync_case["ext_state"],
+                                "Action": sync_case["ext_action"],
+                                "Reason": "test-ext",
+                            }
+                        ],
+                    },
+                    "Mcp": {"Items": [], "Summary": {"add": 0, "update": 0, "unchanged": 0, "blocked": 0}},
+                    "Summary": {
+                        "Environment": "work",
+                        "Config": {"in-sync": 1, "differs": 0, "repo-only": 0, "home-only": 1},
+                        "Antigravity": "unchanged",
+                    },
+                }
+                return srv.RunResult(0, json.dumps(payload), "")
+            exe = Path(argv[0]).name.lower()
+            if exe == "gh" and "pr" in argv:
+                return srv.RunResult(0, "[]", "")
+            if exe == "gh" and "run" in argv:
+                return srv.RunResult(0, json.dumps(ci_runs_case["runs"]), "")
+            return None
+
+        self.custom_handlers.append(_handler)
+        with self._running_server(offline=False) as (_server, app, port):
+            st_s, _, raw_s = self._request(port, "GET", "/api/sync-status?refresh=1")
+            self.assertEqual(st_s, 200)
+            sync = json.loads(raw_s.decode("utf-8"))
+            self.assertEqual(sync["attention"], [])
+            self.assertEqual(sync["summary_level"], "error")
+            self.assertIn("仅本机存在", sync["config"]["summary_zh"])
+            self.assertIn("外部插件受阻", sync["antigravity"]["summary_zh"])
+            self.assertIn("外部插件存在差异/缺失", sync["antigravity"]["summary_zh"])
+
+            # External different (non-blocked) -> warn
+            sync_case["ext_state"] = "different"
+            sync_case["ext_action"] = "install"
+            st_s2, _, raw_s2 = self._request(port, "GET", "/api/sync-status?refresh=1")
+            self.assertEqual(st_s2, 200)
+            sync2 = json.loads(raw_s2.decode("utf-8"))
+            self.assertEqual(sync2["summary_level"], "warn")
+
+            # Newer passing run on main suppresses older main failure in _compute_attention
+            with mock.patch("dashboard.server.shutil.which", return_value="gh"):
+                st_g, _, _ = self._request(port, "GET", "/api/github?refresh=1")
+                self.assertEqual(st_g, 200)
+
+            st_o, _, raw_o = self._request(port, "GET", "/api/overview")
+            self.assertEqual(st_o, 200)
+            ov = json.loads(raw_o.decode("utf-8"))
+            self.assertFalse(any("GitHub CI 失败" in c["title"] for c in ov["attention"]))
+
+            # When main's latest run failed AND feature branch failed, main (priority branch) is reported
+            ci_runs_case["runs"] = [
+                {
+                    "databaseId": 201,
+                    "workflowName": "Validate",
+                    "status": "completed",
+                    "conclusion": "failure",
+                    "headBranch": "other-branch",
+                    "displayTitle": "Other failed",
+                    "createdAt": "2026-11-26T11:00:00Z",
+                },
+                {
+                    "databaseId": 202,
+                    "workflowName": "Validate",
+                    "status": "completed",
+                    "conclusion": "failure",
+                    "headBranch": "main",
+                    "displayTitle": "Main failed",
+                    "createdAt": "2026-11-26T10:30:00Z",
+                },
+            ]
+            with mock.patch("dashboard.server.shutil.which", return_value="gh"):
+                self._request(port, "GET", "/api/github?refresh=1")
+            ov2 = json.loads(self._request(port, "GET", "/api/overview")[2].decode("utf-8"))
+            ci_cards = [c for c in ov2["attention"] if "GitHub CI 失败" in c["title"]]
+            self.assertEqual(len(ci_cards), 1)
+            self.assertIn("Main failed", ci_cards[0]["detail"])
+
+    def test_get_diff_tracked_head_and_fallback(self) -> None:
+        recorded_diff_cmds: list[list[str]] = []
+        mode = {"head_ok": True}
+
+        def _diff_handler(argv: list[str], cwd: Path, timeout: float):
+            if Path(argv[0]).name.lower() == "git" and "diff" in argv:
+                recorded_diff_cmds.append(list(argv))
+                if "HEAD" in argv:
+                    if mode["head_ok"]:
+                        return srv.RunResult(0, "+head-diff-line\n", "")
+                    return srv.RunResult(128, "", "bad revision 'HEAD'")
+                if "--cached" in argv:
+                    return srv.RunResult(0, "+staged-part\n", "")
+                return srv.RunResult(0, "+unstaged-part\n", "")
+            return None
+
+        self.custom_handlers.append(_diff_handler)
+        with self._running_server() as (_server, _app, port):
+            st1, _, raw1 = self._request(port, "GET", "/api/diff?path=scripts/doctor.ps1")
+            self.assertEqual(st1, 200)
+            self.assertEqual(json.loads(raw1.decode("utf-8"))["diff"], "+head-diff-line\n")
+            self.assertIn("HEAD", recorded_diff_cmds[0])
+
+            mode["head_ok"] = False
+            recorded_diff_cmds.clear()
+            st2, _, raw2 = self._request(port, "GET", "/api/diff?path=scripts/doctor.ps1")
+            self.assertEqual(st2, 200)
+            diff2 = json.loads(raw2.decode("utf-8"))["diff"]
+            self.assertIn("+staged-part", diff2)
+            self.assertIn("+unstaged-part", diff2)
+            self.assertEqual(len(recorded_diff_cmds), 3)
+
+    def test_main_signal_handling_registers_and_restores_handlers(self) -> None:
+        orig_term = signal.getsignal(signal.SIGTERM)
+        registered: dict[int, object] = {}
+
+        class _FakeServer:
+            def __init__(self, addr, app) -> None:
+                self.server_address = ("127.0.0.1", 54321)
+                self.app = app
+                self.shutdown_threads: list[str] = []
+                self.closed = False
+
+            def serve_forever(self, poll_interval: float = 0.2) -> None:
+                handler = signal.getsignal(signal.SIGTERM)
+                registered[signal.SIGTERM] = handler
+                self.shutdown_threads.append("before")
+                handler(signal.SIGTERM, None)
+                time.sleep(0.05)
+
+            def shutdown(self) -> None:
+                self.shutdown_threads.append(threading.current_thread().name)
+
+            def server_close(self) -> None:
+                self.closed = True
+
+        fake_instances: list[_FakeServer] = []
+
+        def _make_server(addr, app):
+            inst = _FakeServer(addr, app)
+            fake_instances.append(inst)
+            return inst
+
+        with mock.patch("dashboard.server.DashboardHTTPServer", side_effect=_make_server):
+            with contextlib.redirect_stdout(io.StringIO()):
+                rc = srv.main(["--repo-root", os.fspath(self.repo), "--offline"])
+
+        self.assertEqual(rc, 0)
+        self.assertEqual(len(fake_instances), 1)
+        inst = fake_instances[0]
+        self.assertTrue(inst.closed)
+        self.assertGreaterEqual(len(inst.shutdown_threads), 2)
+        self.assertNotEqual(inst.shutdown_threads[1], threading.current_thread().name)
+        self.assertFalse(srv.server_json_path(self.repo).exists())
+        self.assertIs(signal.getsignal(signal.SIGTERM), orig_term)
+
+    def test_frontend_backend_contract(self) -> None:
+        index_path = REPO_ROOT / "dashboard" / "index.html"
+        server_path = REPO_ROOT / "dashboard" / "server.py"
+        html_text = index_path.read_text(encoding="utf-8")
+        server_text = server_path.read_text(encoding="utf-8")
+
+        self.assertNotIn(".innerHTML", html_text)
+        self.assertNotIn(".outerHTML", html_text)
+        self.assertRegex(
+            html_text,
+            r'<meta\s+name="dashboard-token"\s+content="__DASHBOARD_TOKEN__"\s*>',
+        )
+
+        html_actions = set(re.findall(r'data-action="([^"]+)"', html_text))
+        self.assertTrue(html_actions)
+        self.assertTrue(html_actions.issubset(srv.ALLOWED_ACTIONS))
+
+        html_targets = set(re.findall(r'data-target="([^"]+)"', html_text))
+        self.assertTrue(html_targets)
+        self.assertTrue(html_targets.issubset(srv.ALLOWED_SYNC_TARGETS))
+
+        self.assertIn("openJobLogs", html_text)
+        self.assertNotIn("preview.can_apply === false && job.exit_code === 0", html_text)
+
+        retired_pattern = re.compile(r"\b(claude|openclaw|opencode|reasonix|zcode)\b", re.IGNORECASE)
+        self.assertIsNone(retired_pattern.search(html_text))
+        self.assertIsNone(retired_pattern.search(server_text))
 
 
 if __name__ == "__main__":

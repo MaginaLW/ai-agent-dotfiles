@@ -801,6 +801,7 @@ const state = {
   jobs: [],
   jobDetails: new Map(),
   openDiffs: new Map(),
+  openJobLogs: new Set(),
   activeJobId: null,
   currentPreviewJob: null,
   skillFilter: "all",
@@ -1650,12 +1651,29 @@ function renderJobsList() {
     const pre = el("pre", job.output_sanitized != null ? (job.output_sanitized || "（无输出）") : "展开后自动加载日志…", "log");
     pre.style.marginTop = "6px";
     details.append(sum, pre);
-    details.ontoggle = async () => {
-      if (details.open && job.output_sanitized == null) {
+    const ensureJobLogLoaded = async () => {
+      const cached = state.jobDetails.get(job.id);
+      if (cached && cached.output_sanitized != null) {
+        pre.textContent = cached.output_sanitized || "（无输出）";
+        return;
+      }
+      if (job.output_sanitized == null) {
         const full = await fetchJobDetail(job.id);
         if (full) {
           pre.textContent = full.output_sanitized || "（无输出）";
         }
+      }
+    };
+    details.open = state.openJobLogs.has(job.id);
+    if (details.open && job.output_sanitized == null) {
+      ensureJobLogLoaded();
+    }
+    details.ontoggle = async () => {
+      if (details.open) {
+        state.openJobLogs.add(job.id);
+        await ensureJobLogLoaded();
+      } else {
+        state.openJobLogs.delete(job.id);
       }
     };
     card.append(details);
@@ -1674,16 +1692,18 @@ function openPreviewModal(job) {
 
   const alertBox = byId("previewAlertBox");
   alertBox.replaceChildren();
-  const isBlocked = Boolean(preview.blocked) || (preview.items || []).some(it => it.action === "blocked");
+  const isBlocked = preview.blocked != null
+    ? Boolean(preview.blocked)
+    : (preview.items || []).some(it => it.action === "blocked");
   if (preview.has_prune) {
     alertBox.append(el("div", "警告：此预览包含旧目录清理 (prune) 操作，请务必核对清单并确认！", "notice error"));
   }
   if (isBlocked) {
-    alertBox.append(el("div", "存在被阻断的变更项或前置条件未满足，禁止直接 Apply。请根据日志排查或复制给 AI 处理。", "notice error"));
-  } else if (preview.no_changes || (preview.can_apply === false && job.exit_code === 0)) {
+    alertBox.append(el("div", preview.summary_zh || "存在被阻断的变更项或前置条件未满足，禁止直接 Apply。请根据日志排查或复制给 AI 处理。", "notice error"));
+  } else if (preview.no_changes) {
     alertBox.append(el("div", preview.summary_zh || "当前所有项目均已同步，无需执行写入。", "notice ok"));
   } else if (!preview.can_apply) {
-    alertBox.append(el("div", "预览未能通过可执行检查（can_apply=false），无法执行写入。", "notice warn"));
+    alertBox.append(el("div", preview.summary_zh || "预览未能通过可执行检查（can_apply=false），无法执行写入。", "notice warn"));
   }
 
   const tableWrap = byId("previewTableWrap");
@@ -1876,26 +1896,29 @@ async function refreshOverview() {
   }
 }
 
-async function refreshSyncStatus(force) {
+async function refreshSyncStatus(force, syncOverview = force) {
   try {
     const data = await apiGet("/api/sync-status" + (force ? "?refresh=1" : ""));
     state.syncStatus = data;
     renderHeaderAndKpis();
     renderAttention();
     renderSyncSection();
+    if (syncOverview) await refreshOverview();
   } catch (err) {
     state.syncStatus = { ok: false, summary_level: "error", summary_zh: "同步状态读取失败：" + err.message };
     renderHeaderAndKpis();
+    renderAttention();
     renderSyncSection();
   }
 }
 
-async function refreshGithub(force) {
+async function refreshGithub(force, syncOverview = force) {
   try {
     const data = await apiGet("/api/github" + (force ? "?refresh=1" : ""));
     state.github = data;
     renderHeaderAndKpis();
     renderCommitsAndGithub();
+    if (syncOverview) await refreshOverview();
   } catch (err) {
     state.github = { available: false, offline: true, message_zh: "GitHub 查询失败：" + err.message, open_prs: [], ci_runs: [] };
     renderHeaderAndKpis();
@@ -1938,7 +1961,8 @@ byId("autoRefreshBtn").onclick = () => {
 byId("fullRefreshBtn").onclick = async () => {
   byId("fullRefreshBtn").disabled = true;
   showToast("正在全面刷新仓库、同步与 GitHub…");
-  await Promise.all([refreshOverview(), refreshSyncStatus(true), refreshGithub(true), refreshJobs()]);
+  await Promise.all([refreshSyncStatus(true, false), refreshGithub(true, false), refreshJobs()]);
+  await refreshOverview();
   byId("fullRefreshBtn").disabled = false;
   showToast("全面刷新完成");
 };
@@ -2047,7 +2071,8 @@ document.addEventListener("keydown", (ev) => {
 // Initial Load
 (async function init() {
   await refreshOverview();
-  Promise.all([refreshSyncStatus(false), refreshGithub(false), refreshTestSuites(), refreshJobs()]);
+  await Promise.all([refreshSyncStatus(false), refreshGithub(false), refreshTestSuites(), refreshJobs()]);
+  await refreshOverview();
   scheduleOverviewPoll();
 })();
 </script>

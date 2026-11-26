@@ -30,11 +30,16 @@ try {
     $coreScripts = @(
         'agent-dotfiles.ps1', 'antigravity-plugins.ps1', 'mcp-sync.ps1',
         'config-status.ps1', 'config-pull.ps1', 'config-push.ps1',
-        'deploy.ps1', 'deploy-skills.ps1', 'build-skills.ps1', 'scan-secrets.ps1'
+        'deploy.ps1', 'deploy-skills.ps1', 'build-skills.ps1', 'dashboard.ps1', 'scan-secrets.ps1'
     )
     foreach ($s in $coreScripts) {
         if ($output -notmatch [regex]::Escape("scripts\$s exists")) {
             throw "doctor did not check scripts/$s"
+        }
+    }
+    foreach ($p in @('dashboard\server.py', 'dashboard\index.html')) {
+        if ($output -notmatch [regex]::Escape("$p exists")) {
+            throw "doctor did not check $p"
         }
     }
     if ($output -notmatch 'Secrets scan skipped') { throw 'doctor did not record the skipped secret scan' }
@@ -67,19 +72,21 @@ try {
     & git -C $cleanRepo config user.email "test@example.com"
     & git -C $cleanRepo config user.name "Test"
 
-    foreach ($dir in 'docs', 'scripts', 'skills-source', 'status/active', 'tools/gitleaks') {
+    foreach ($dir in 'docs', 'scripts', 'skills-source', 'status/active', 'tools/gitleaks', 'dashboard') {
         New-Item -ItemType Directory -Path (Join-Path $cleanRepo $dir) -Force | Out-Null
     }
     foreach ($file in 'AGENTS.md', 'STATUS.md') {
         [System.IO.File]::WriteAllText((Join-Path $cleanRepo $file), "# $file`n", [System.Text.UTF8Encoding]::new($false))
     }
+    [System.IO.File]::WriteAllText((Join-Path $cleanRepo 'dashboard/server.py'), "# stub`n", [System.Text.UTF8Encoding]::new($false))
+    [System.IO.File]::WriteAllText((Join-Path $cleanRepo 'dashboard/index.html'), "<!doctype html>`n", [System.Text.UTF8Encoding]::new($false))
     Copy-Item -LiteralPath $doctor -Destination (Join-Path $cleanRepo 'scripts/doctor.ps1')
     Copy-Item -LiteralPath (Join-Path $RepoRoot 'scripts/repo-common.ps1') -Destination (Join-Path $cleanRepo 'scripts/repo-common.ps1')
 
     $dummyScripts = @(
         'agent-dotfiles.ps1', 'antigravity-plugins.ps1', 'mcp-sync.ps1',
         'config-status.ps1', 'config-pull.ps1', 'config-push.ps1',
-        'deploy.ps1', 'deploy-skills.ps1', 'build-skills.ps1'
+        'deploy.ps1', 'deploy-skills.ps1', 'build-skills.ps1', 'dashboard.ps1'
     )
     foreach ($s in $dummyScripts) {
         [System.IO.File]::WriteAllText((Join-Path $cleanRepo "scripts/$s"), "# $s`n", [System.Text.UTF8Encoding]::new($false))

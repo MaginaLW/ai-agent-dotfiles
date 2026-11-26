@@ -6,7 +6,7 @@ $ErrorActionPreference = 'Stop'
 # Repository policy suite. It checks functional repository guard rails, not documentation
 # wording: retired local entry points, per-platform manifests, generated-root boundaries
 # (ignore rules, build defaults, scan exclusions), and retired platform exclusions in
-# scripts/, manifests/, and harness-source/.
+# scripts/, manifests/, harness-source/, and dashboard/.
 
 $RepoRoot = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path
 . (Join-Path $PSScriptRoot 'helpers/test-common.ps1')
@@ -185,7 +185,7 @@ Assert-TestCondition ((Get-LiteralOccurrenceCount -Text (Read-RepoText 'bootstra
 # Retired platforms and managed MCP projection boundaries
 # -----------------------------------------------------------------------------
 Write-Host '[retired platform absence and MCP boundaries]'
-$policyFiles = @(Get-ChildItem -LiteralPath (Join-Path $RepoRoot 'scripts'), (Join-Path $RepoRoot 'manifests'), (Join-Path $RepoRoot 'harness-source') -Recurse -File)
+$policyFiles = @(Get-ChildItem -LiteralPath (Join-Path $RepoRoot 'scripts'), (Join-Path $RepoRoot 'manifests'), (Join-Path $RepoRoot 'harness-source'), (Join-Path $RepoRoot 'dashboard') -Recurse -File)
 $scriptsRootFull = [System.IO.Path]::GetFullPath((Join-Path $RepoRoot 'scripts'))
 $manifestsRootFull = [System.IO.Path]::GetFullPath((Join-Path $RepoRoot 'manifests'))
 $allowedMcpScripts = @(
@@ -212,7 +212,7 @@ foreach ($file in $policyFiles) {
         }
     }
 }
-Assert-TestCondition ($retiredHits.Count -eq 0) 'no Claude, OpenClaw, OpenCode, Reasonix, or ZCode reference exists under scripts/, manifests/, or harness-source/'
+Assert-TestCondition ($retiredHits.Count -eq 0) 'no Claude, OpenClaw, OpenCode, Reasonix, or ZCode reference exists under scripts/, manifests/, harness-source/, or dashboard/'
 Assert-TestCondition ($mcpScriptHits.Count -eq 0) 'MCP references under scripts/ are confined to mcp-sync.ps1, agent-dotfiles.ps1, and doctor.ps1'
 Assert-TestCondition ($mcpManifestNonCommentHits.Count -eq 0) 'MCP appears in manifests/ only as descriptive comments, never as an active operation'
 $whitelistData = Import-PowerShellDataFile -LiteralPath (Join-Path $RepoRoot 'manifests/whitelist.psd1')

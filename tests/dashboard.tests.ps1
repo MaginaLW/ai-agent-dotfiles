@@ -20,6 +20,18 @@ $serverStdoutTask = $null
 $serverStderrTask = $null
 
 try {
+    Write-Host 'dashboard: python unit tests'
+    $pythonCommands = @(Get-Command python -CommandType Application -ErrorAction Stop)
+    $pythonPath = $pythonCommands[0].Source
+    Push-Location -LiteralPath $RepoRoot
+    try {
+        & $pythonPath -B -m unittest tests/dashboard_server_test.py -v
+        Assert-TestCondition ($LASTEXITCODE -eq 0) 'tests/dashboard_server_test.py passes under unittest'
+    }
+    finally {
+        Pop-Location
+    }
+
     Write-Host 'dashboard: entry scripts and launcher'
     $cmdPath = Join-Path $RepoRoot 'start-dashboard.cmd'
     Assert-TestCondition (Test-Path -LiteralPath $cmdPath -PathType Leaf) 'start-dashboard.cmd exists at repository root'
@@ -99,8 +111,6 @@ try {
         }
     }
 
-    $pythonCommands = @(Get-Command python -CommandType Application -ErrorAction Stop)
-    $pythonPath = $pythonCommands[0].Source
     $startInfo = [System.Diagnostics.ProcessStartInfo]::new($pythonPath)
     foreach ($arg in @(
         '-B',

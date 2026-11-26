@@ -6,6 +6,7 @@ from __future__ import annotations
 import argparse
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
+import hashlib
 import hmac
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import json
@@ -14,6 +15,7 @@ from pathlib import Path
 import re
 import secrets
 import shutil
+import signal
 import stat
 import subprocess
 import sys
@@ -28,7 +30,6 @@ import webbrowser
 from typing import Any, Callable
 
 
-RETIRED_HINT_CHECK = False  # Pure stdlib local dashboard server
 SKILL_NAME_RE = re.compile(r"^[a-z0-9][a-z0-9._-]*$")
 LOOPBACK_URL_RE = re.compile(r"^http://127\.0\.0\.1:([1-9][0-9]{0,4})/$")
 WINDOWS_USERS_RE = re.compile(r"(?i)[A-Za-z]:[\\/]+Users[\\/]+[^\\/\r\n\t\"'`<>|:;]+")
@@ -250,6 +251,7 @@ class PreviewRecord:
     can_apply: bool
     has_prune: bool
     no_changes: bool
+    workspace_fingerprint: str = ""
     consumed: bool = False
 
 
@@ -518,6 +520,64 @@ class DashboardApp:
         if res.exit_code == 0:
             return res.stdout.strip()
         return ""
+
+    @staticmethod
+    def _is_managed_source_path(rel_path: str) -> bool:
+        norm = rel_path.replace("\\", "/").lstrip("/")
+        if norm == "codex/skills" or norm.startswith("codex/skills/") or norm == "manifests/managed-skills.codex.txt":
+            return False
+        if norm in ("manifests/whitelist.psd1", ".gitleaks.toml"):
+            return True
+        return norm.startswith(("skills-source/", "codex/", "antigravity/", "harness-source/"))
+
+    def _compute_managed_workspace_fingerprint(self) -> str:
+        head_sha = self._get_git_head_sha()
+        status_res = self._run_git(
+            ["status", "--porcelain=v1", "--untracked-files=all"],
+            timeout=2.0,
+        )
+        hasher = hashlib.sha256()
+        hasher.update(f"HEAD:{head_sha}\n".encode("utf-8"))
+        if status_res.exit_code != 0:
+            hasher.update(f"STATUS_ERR:{status_res.exit_code}\n".encode("utf-8"))
+            return hasher.hexdigest()
+
+        matched: list[tuple[str, str]] = []
+        for line in status_res.stdout.splitlines():
+            if len(line) < 4:
+                continue
+            code = line[:2]
+            raw_path = line[3:].strip()
+            if " -> " in raw_path:
+                raw_path = raw_path.split(" -> ", 1)[1].strip()
+            if raw_path.startswith('"') and raw_path.endswith('"'):
+                raw_path = raw_path[1:-1]
+            norm_path = raw_path.replace("\\", "/")
+            if not self._is_managed_source_path(norm_path):
+                continue
+            matched.append((norm_path, code))
+
+        for norm_path, code in sorted(matched):
+            digest = "missing"
+            try:
+                _, abs_path = resolve_repo_relative_file(self.repo_root, norm_path)
+                if is_reparse_or_symlink(abs_path):
+                    digest = "reparse"
+                elif abs_path.is_dir():
+                    digest = "dir"
+                elif abs_path.is_file():
+                    file_hash = hashlib.sha256()
+                    with abs_path.open("rb") as fh:
+                        while True:
+                            chunk = fh.read(65536)
+                            if not chunk:
+                                break
+                            file_hash.update(chunk)
+                    digest = file_hash.hexdigest()
+            except (OSError, ValueError):
+                digest = "reparse"
+            hasher.update(f"{code}\t{norm_path}\t{digest}\n".encode("utf-8"))
+        return hasher.hexdigest()
 
     def _collect_repo_overview(self) -> dict[str, Any]:
         status_res = self._run_git(
@@ -879,7 +939,31 @@ class DashboardApp:
                 })
 
         if gh_cached and gh_cached.get("available"):
-            for run in gh_cached.get("ci_runs", [])[:3]:
+            latest_by_branch: dict[str, dict[str, Any]] = {}
+            for run in gh_cached.get("ci_runs", []):
+                if not isinstance(run, dict):
+                    continue
+                branch_name = str(run.get("headBranch") or "")
+                existing = latest_by_branch.get(branch_name)
+                if existing is None:
+                    latest_by_branch[branch_name] = run
+                else:
+                    new_ts = str(run.get("createdAt") or "")
+                    old_ts = str(existing.get("createdAt") or "")
+                    if new_ts and (not old_ts or new_ts > old_ts):
+                        latest_by_branch[branch_name] = run
+
+            current_branch = str(repo.get("branch") or "")
+            ordered_branches: list[str] = []
+            for priority_branch in (current_branch, "main"):
+                if priority_branch and priority_branch in latest_by_branch and priority_branch not in ordered_branches:
+                    ordered_branches.append(priority_branch)
+            for branch_name in latest_by_branch:
+                if branch_name not in ordered_branches:
+                    ordered_branches.append(branch_name)
+
+            for branch_name in ordered_branches:
+                run = latest_by_branch[branch_name]
                 conclusion = (run.get("conclusion") or "").lower()
                 if conclusion in ("failure", "timed_out", "cancelled"):
                     cards.append({
@@ -970,12 +1054,14 @@ class DashboardApp:
             else:
                 diff_text = raw_bytes.decode("utf-8", errors="replace")
         else:
-            diff_res = self._run_git(["diff", "--", rel_path], timeout=4.0)
-            diff_text = diff_res.stdout
-            if not diff_text.strip():
+            head_res = self._run_git(["diff", "HEAD", "--", rel_path], timeout=4.0)
+            if head_res.exit_code == 0 and head_res.stdout.strip():
+                diff_text = head_res.stdout
+            else:
                 staged_res = self._run_git(["diff", "--cached", "--", rel_path], timeout=4.0)
-                if staged_res.stdout.strip():
-                    diff_text = staged_res.stdout
+                unstaged_res = self._run_git(["diff", "--", rel_path], timeout=4.0)
+                parts = [p for p in (staged_res.stdout, unstaged_res.stdout) if p and p.strip()]
+                diff_text = "\n".join(parts)
             if len(diff_text) > 65536:
                 diff_text = diff_text[:65536]
                 truncated = True
@@ -1083,26 +1169,56 @@ class DashboardApp:
 
         cfg_items = cfg_raw if isinstance(cfg_raw, list) else []
         cfg_summary = summary_raw.get("Config") if isinstance(summary_raw, dict) else None
-        cfg_differs = int((cfg_summary or {}).get("differs", 0) + (cfg_summary or {}).get("repo-only", 0))
+        if isinstance(cfg_summary, dict):
+            cfg_differs = int(cfg_summary.get("differs", 0) + cfg_summary.get("repo-only", 0))
+            cfg_home_only = int(cfg_summary.get("home-only", 0))
+        else:
+            cfg_differs = sum(1 for it in cfg_items if isinstance(it, dict) and it.get("Status") in ("differs", "repo-only"))
+            cfg_home_only = sum(1 for it in cfg_items if isinstance(it, dict) and it.get("Status") == "home-only")
         if isinstance(cfg_raw, dict) and cfg_raw.get("Error"):
             cfg_summary_zh = f"配置检查出错：{cfg_raw.get('Error')}"
         elif cfg_differs > 0:
             cfg_summary_zh = f"有 {cfg_differs} 项受管规则与仓库存在差异"
+            if cfg_home_only > 0:
+                cfg_summary_zh += f"（另有 {cfg_home_only} 项仅本机存在）"
+        elif cfg_home_only > 0:
+            cfg_summary_zh = f"受管规则已对齐（另有 {cfg_home_only} 项仅本机存在）"
         else:
             cfg_summary_zh = "Codex 与 Antigravity 全局规则均已对齐"
 
         ag_action = str(ag_raw.get("Action") or summary_raw.get("Antigravity") or "unavailable")
         ag_req = ag_raw.get("ApplyRequirement")
+        ag_externals = ag_raw.get("ExternalExpectations") if isinstance(ag_raw.get("ExternalExpectations"), list) else []
+        ext_blocked = 0
+        ext_drift = 0
+        for ext in ag_externals:
+            if not isinstance(ext, dict):
+                continue
+            ext_state = str(ext.get("State") or "")
+            ext_act = str(ext.get("Action") or "")
+            if ext_state != "unchanged" and (ext_state == "blocked" or ext_act == "blocked"):
+                ext_blocked += 1
+            if ext_state in ("missing", "different"):
+                ext_drift += 1
+
         if ag_raw.get("Error"):
             ag_summary_zh = f"插件状态异常：{ag_raw.get('Error')}"
-        elif ag_action == "unchanged":
-            ag_summary_zh = f"自有插件 v{ag_raw.get('Version', '?')} 已安装且一致"
-        elif ag_action == "update" and ag_req == "build-with-current-agy-before-apply":
-            ag_summary_zh = "插件有新版本，需先使用当前 agy 重新打包后再部署"
-        elif ag_action in ("install", "update"):
-            ag_summary_zh = f"自有插件可执行{ACTION_ZH_MAP.get(ag_action, ag_action)}"
         else:
-            ag_summary_zh = f"插件状态：{ag_raw.get('Reason') or ag_action}"
+            if ag_action == "unchanged":
+                ag_summary_zh = f"自有插件 v{ag_raw.get('Version', '?')} 已安装且一致"
+            elif ag_action == "update" and ag_req == "build-with-current-agy-before-apply":
+                ag_summary_zh = "插件有新版本，需先使用当前 agy 重新打包后再部署"
+            elif ag_action in ("install", "update"):
+                ag_summary_zh = f"自有插件可执行{ACTION_ZH_MAP.get(ag_action, ag_action)}"
+            else:
+                ag_summary_zh = f"插件状态：{ag_raw.get('Reason') or ag_action}"
+            ext_notes: list[str] = []
+            if ext_blocked > 0:
+                ext_notes.append(f"{ext_blocked} 个外部插件受阻")
+            if ext_drift > 0:
+                ext_notes.append(f"{ext_drift} 个外部插件存在差异/缺失")
+            if ext_notes:
+                ag_summary_zh += "；" + "、".join(ext_notes)
 
         mcp_items = mcp_raw.get("Items") if isinstance(mcp_raw, dict) and isinstance(mcp_raw.get("Items"), list) else []
         mcp_summary = mcp_raw.get("Summary") if isinstance(mcp_raw, dict) else None
@@ -1128,11 +1244,13 @@ class DashboardApp:
         has_blocked = (
             ag_action == "blocked"
             or ag_req == "build-with-current-agy-before-apply"
+            or ext_blocked > 0
             or (isinstance(mcp_summary, dict) and int(mcp_summary.get("blocked", 0)) > 0)
         )
         has_drift = (
             cfg_differs > 0
             or ag_action in ("install", "update")
+            or ext_drift > 0
             or (isinstance(mcp_summary, dict) and (int(mcp_summary.get("add", 0)) + int(mcp_summary.get("update", 0))) > 0)
         )
 
@@ -1146,9 +1264,7 @@ class DashboardApp:
             summary_level = "ok"
             summary_zh = "双端规则、插件与受管 MCP 均已同步"
 
-        attention = []
-        if has_drift:
-            attention.append({"level": "warn", "detail": summary_zh})
+        attention: list[dict[str, Any]] = []
 
         result = {
             "ok": res.exit_code == 0,
@@ -1434,11 +1550,14 @@ class DashboardApp:
         res: RunResult,
         output_sanitized: str,
         repo_head_sha: str,
+        workspace_fingerprint: str = "",
     ) -> tuple[dict[str, Any], PreviewRecord]:
         items: list[dict[str, str]] = []
         has_prune = False
         has_blocked = False
         has_changes = False
+        unrecorded_updates: list[str] = []
+        has_interrupted_remnants = False
 
         lowered = output_sanitized.lower()
         if "build-with-current-agy-before-apply" in lowered or "preflight failed" in lowered:
@@ -1454,23 +1573,91 @@ class DashboardApp:
                 reason = str(s_parsed.get("Reason") or "")
                 req = str(s_parsed.get("ApplyRequirement") or "")
                 name = str(s_parsed.get("Name") or "ai-agent-dotfiles")
+                version = str(s_parsed.get("Version") or "").strip()
                 if action == "blocked" or req == "build-with-current-agy-before-apply":
                     has_blocked = True
                 if action in ("install", "update"):
                     has_changes = True
+
+                detail_parts: list[str] = []
+                if version:
+                    detail_parts.append(f"v{version}")
+                if reason:
+                    detail_parts.append(reason)
+                if req and req != "none":
+                    detail_parts.append(f"({req})")
+                changes = s_parsed.get("Changes")
+                if isinstance(changes, dict):
+                    added = len(changes.get("Added") or []) if isinstance(changes.get("Added"), list) else 0
+                    changed = len(changes.get("Changed") or []) if isinstance(changes.get("Changed"), list) else 0
+                    removed = len(changes.get("Removed") or []) if isinstance(changes.get("Removed"), list) else 0
+                    change_parts: list[str] = []
+                    if added:
+                        change_parts.append(f"新增 {added}")
+                    if changed:
+                        change_parts.append(f"修改 {changed}")
+                    if removed:
+                        change_parts.append(f"移除 {removed}")
+                    if change_parts:
+                        detail_parts.append("文件变更：" + " / ".join(change_parts))
+
                 items.append({
                     "action": action,
                     "action_zh": ACTION_ZH_MAP.get(action, action),
                     "name": name,
-                    "detail": f"{reason}" + (f" ({req})" if req and req != "none" else ""),
+                    "detail": " · ".join(detail_parts),
                 })
+
+                externals = s_parsed.get("ExternalExpectations")
+                if isinstance(externals, list):
+                    for ext in externals:
+                        if not isinstance(ext, dict):
+                            continue
+                        ext_name = str(ext.get("Name") or "unknown")
+                        ext_state = str(ext.get("State") or "")
+                        ext_act = str(ext.get("Action") or ext_state or "unknown")
+                        ext_reason = str(ext.get("Reason") or "")
+                        ext_detail_parts = []
+                        if ext_state:
+                            ext_detail_parts.append(f"状态 {ext_state}")
+                        if ext_reason:
+                            ext_detail_parts.append(ext_reason)
+                        items.append({
+                            "action": ext_act,
+                            "action_zh": f"只读（{ACTION_ZH_MAP.get(ext_act, ext_act)}）",
+                            "name": f"外部插件/{ext_name}",
+                            "detail": " · ".join(ext_detail_parts),
+                        })
             else:
                 has_blocked = True
         else:
+            skill_file_changes: dict[str, list[tuple[str, str]]] = {}
+            current_skill_name: str | None = None
             for line in output_sanitized.splitlines():
                 stripped = line.strip()
+
+                fhm = re.match(r"^File changes for (Codex/\S+):$", stripped)
+                if fhm:
+                    current_skill_name = fhm.group(1)
+                    skill_file_changes.setdefault(current_skill_name, [])
+                    continue
+
+                if current_skill_name is not None:
+                    fcm = re.match(r"^\s{2}(add|change|remove)\s+(\S.*)$", line)
+                    if fcm:
+                        skill_file_changes[current_skill_name].append((fcm.group(1), fcm.group(2).strip()))
+                        continue
+                    current_skill_name = None
+
+                if stripped.startswith("Update not recorded in deploy state:"):
+                    unrecorded_updates.append(stripped)
+                    continue
+                if "Possible interrupted deployment remnants" in stripped:
+                    has_interrupted_remnants = True
+                    continue
+
                 # deploy-skills table line: Codex install skill-name
-                sm = re.match(r"^(Codex)\s+(install|update|unchanged|prune|unknown)\s+(\S+)$", line.strip())
+                sm = re.match(r"^(Codex)\s+(install|update|unchanged|prune|unknown)\s+(\S+)$", stripped)
                 if sm:
                     act, name = sm.group(2), sm.group(3)
                     if act in ("install", "update", "prune"):
@@ -1523,6 +1710,16 @@ class DashboardApp:
                 if re.search(r"\b(install|add|update)=[1-9]\d*\b", line):
                     has_changes = True
 
+            for item in items:
+                changes = skill_file_changes.get(item["name"])
+                if changes:
+                    total = len(changes)
+                    preview_parts = [f"{act} {rel}" for act, rel in changes[:4]]
+                    detail = f"变更 {total} 项：" + ", ".join(preview_parts)
+                    if total > 4:
+                        detail += f" 等共 {total} 项"
+                    item["detail"] = detail
+
         no_changes = (res.exit_code == 0) and (not has_blocked) and (not has_changes)
         can_apply = (res.exit_code == 0) and (not has_blocked) and has_changes
 
@@ -1546,6 +1743,10 @@ class DashboardApp:
         risk_notice_zh = risk_map[target]
         if has_prune:
             risk_notice_zh += " 注意：本次计划包含清理移除（prune）此前由本工具部署但当前环境未选中的旧技能。"
+        if unrecorded_updates:
+            risk_notice_zh += " 注意：部分待更新目录未记录在部署状态中（覆盖前将自动备份，但原有归属未知）。"
+        if has_interrupted_remnants:
+            risk_notice_zh += " 警告：检测到可能存在上次中断部署的残留目录（.deploying-*），建议在执行写入前先核查。"
 
         now_ts = time.time()
         preview_id = str(uuid.uuid4())
@@ -1559,12 +1760,14 @@ class DashboardApp:
             can_apply=can_apply,
             has_prune=has_prune,
             no_changes=no_changes,
+            workspace_fingerprint=workspace_fingerprint,
             consumed=False,
         )
         preview_payload = {
             "preview_id": preview_id,
             "target": target,
             "environment": environment,
+            "blocked": has_blocked,
             "can_apply": can_apply,
             "has_prune": has_prune,
             "no_changes": no_changes,
@@ -1573,36 +1776,37 @@ class DashboardApp:
             "risk_notice_zh": risk_notice_zh,
             "expires_in_sec": 300,
             "repo_head_sha": repo_head_sha,
+            "workspace_fingerprint": workspace_fingerprint[:12],
         }
         return preview_payload, record
 
-    def _spawn_job(
+    def _register_job_locked(self, kind: str, label_zh: str) -> JobRecord:
+        if self._active_job_id is not None:
+            active = self._active_job_summary_locked()
+            if active is not None:
+                raise RuntimeError("busy")
+        job_id = str(uuid.uuid4())[:12]
+        job = JobRecord(
+            id=job_id,
+            kind=kind,
+            label_zh=label_zh,
+            status="running",
+            started_at=utc_now_iso(),
+            started_monotonic=time.monotonic(),
+        )
+        self._jobs[job_id] = job
+        self._job_order.append(job_id)
+        self._active_job_id = job_id
+        return job
+
+    def _start_job_thread(
         self,
-        kind: str,
+        job: JobRecord,
         label_zh: str,
         argv: list[str],
         timeout: float,
-        *,
         on_complete: Callable[[JobRecord, RunResult, str], None] | None = None,
-    ) -> dict[str, Any]:
-        with self._lock:
-            if self._active_job_id is not None:
-                active = self._active_job_summary_locked()
-                if active is not None:
-                    raise RuntimeError("busy")
-            job_id = str(uuid.uuid4())[:12]
-            job = JobRecord(
-                id=job_id,
-                kind=kind,
-                label_zh=label_zh,
-                status="running",
-                started_at=utc_now_iso(),
-                started_monotonic=time.monotonic(),
-            )
-            self._jobs[job_id] = job
-            self._job_order.append(job_id)
-            self._active_job_id = job_id
-
+    ) -> None:
         def _worker() -> None:
             res = self.runner(argv, cwd=self.repo_root, timeout=timeout)
             combined = "\n".join(part for part in (res.stdout, res.stderr, res.error or "") if part)
@@ -1626,6 +1830,19 @@ class DashboardApp:
 
         thread = threading.Thread(target=_worker, daemon=True)
         thread.start()
+
+    def _spawn_job(
+        self,
+        kind: str,
+        label_zh: str,
+        argv: list[str],
+        timeout: float,
+        *,
+        on_complete: Callable[[JobRecord, RunResult, str], None] | None = None,
+    ) -> dict[str, Any]:
+        with self._lock:
+            job = self._register_job_locked(kind, label_zh)
+        self._start_job_thread(job, label_zh, argv, timeout, on_complete)
         return job.to_summary()
 
     def start_action_job(self, action: str, suite: str | None = None) -> dict[str, Any]:
@@ -1643,9 +1860,29 @@ class DashboardApp:
     def start_sync_preview_job(self, target: str, environment: str = "work") -> dict[str, Any]:
         label_zh, argv = self._build_sync_command(target, environment, apply_mode=False)
         head_sha = self._get_git_head_sha()
+        pre_fp = self._compute_managed_workspace_fingerprint()
 
         def _after(job: JobRecord, res: RunResult, output_sanitized: str) -> None:
-            preview_payload, record = self._parse_preview_output(target, environment, res, output_sanitized, head_sha)
+            post_head = self._get_git_head_sha()
+            post_fp = self._compute_managed_workspace_fingerprint()
+            preview_payload, record = self._parse_preview_output(
+                target,
+                environment,
+                res,
+                output_sanitized,
+                post_head or head_sha,
+                post_fp,
+            )
+            if post_head != head_sha or post_fp != pre_fp:
+                preview_payload["blocked"] = True
+                preview_payload["can_apply"] = False
+                preview_payload["no_changes"] = False
+                preview_payload["summary_zh"] = "预览执行期间受管源码文件或仓库 HEAD 发生变化，禁止写入，请重新预览"
+                record.can_apply = False
+                record.no_changes = False
+            record.workspace_fingerprint = post_fp
+            preview_payload["workspace_fingerprint"] = post_fp[:12]
+
             self._previews[record.preview_id] = record
             job.preview = preview_payload
             job.summary_zh = preview_payload["summary_zh"]
@@ -1664,6 +1901,14 @@ class DashboardApp:
             return 400, {"ok": False, "error": "缺少有效的 preview_id"}
 
         now_ts = time.time()
+        current_head = self._get_git_head_sha()
+        current_fp = self._compute_managed_workspace_fingerprint()
+
+        def _after(job: JobRecord, res: RunResult, _output_sanitized: str) -> None:
+            self._sync_status_cache = None
+            if res.exit_code == 0:
+                job.summary_zh = f"{label_zh} 成功，已刷新双端状态缓存"
+
         with self._lock:
             if self._active_job_id is not None and self._active_job_summary_locked() is not None:
                 return 409, {"ok": False, "error": "已有任务正在执行，请等待完成后重试"}
@@ -1676,25 +1921,19 @@ class DashboardApp:
                 return 409, {"ok": False, "error": "预览已过期（超过 300 秒），请重新预览"}
             if not rec.can_apply:
                 return 400, {"ok": False, "error": "该预览未通过或无变更可执行"}
+            if current_head != rec.repo_head_sha or current_fp != rec.workspace_fingerprint:
+                return 409, {"ok": False, "error": "仓库 HEAD 或受管工作区源码已发生变化，请重新生成预览后再写入"}
 
-            current_head = self._get_git_head_sha()
-            if current_head != rec.repo_head_sha:
-                return 409, {"ok": False, "error": "仓库 HEAD 已发生变化，请重新生成预览后再写入"}
-
+            label_zh, argv = self._build_sync_command(rec.target, rec.environment, apply_mode=True)
             rec.consumed = True
+            try:
+                job = self._register_job_locked(f"apply:{rec.target}", label_zh)
+            except RuntimeError:
+                rec.consumed = False
+                return 409, {"ok": False, "error": "已有任务正在执行，请等待完成后重试"}
 
-        label_zh, argv = self._build_sync_command(rec.target, rec.environment, apply_mode=True)
-
-        def _after(job: JobRecord, res: RunResult, _output_sanitized: str) -> None:
-            self._sync_status_cache = None
-            if res.exit_code == 0:
-                job.summary_zh = f"{label_zh} 成功，已刷新双端状态缓存"
-
-        try:
-            job_summary = self._spawn_job(f"apply:{rec.target}", label_zh, argv, 300.0, on_complete=_after)
-        except RuntimeError:
-            return 409, {"ok": False, "error": "已有任务正在执行，请等待完成后重试"}
-        return 202, {"job": job_summary}
+        self._start_job_thread(job, label_zh, argv, 300.0, _after)
+        return 202, {"job": job.to_summary()}
 
     def list_jobs(self) -> dict[str, Any]:
         with self._lock:
@@ -2123,11 +2362,37 @@ def main(argv: list[str] | None = None) -> int:
         open_timer.daemon = True
         open_timer.start()
 
+    stop_event = threading.Event()
+    prev_handlers: dict[int, Any] = {}
+
+    def _handle_stop_signal(_signum: int, _frame: Any) -> None:
+        if not stop_event.is_set():
+            stop_event.set()
+            threading.Thread(target=server.shutdown, daemon=True).start()
+
+    if threading.current_thread() is threading.main_thread():
+        sig_names = ["SIGTERM"]
+        if hasattr(signal, "SIGBREAK"):
+            sig_names.append("SIGBREAK")
+        for sig_name in sig_names:
+            sig_num = getattr(signal, sig_name, None)
+            if sig_num is not None:
+                try:
+                    prev_handlers[sig_num] = signal.getsignal(sig_num)
+                    signal.signal(sig_num, _handle_stop_signal)
+                except (OSError, ValueError):
+                    pass
+
     try:
         server.serve_forever(poll_interval=0.2)
     except KeyboardInterrupt:
         pass
     finally:
+        for sig_num, prev_handler in prev_handlers.items():
+            try:
+                signal.signal(sig_num, prev_handler)
+            except (OSError, ValueError):
+                pass
         if open_timer is not None:
             open_timer.cancel()
         server.server_close()

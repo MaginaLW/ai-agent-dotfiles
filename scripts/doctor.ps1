@@ -58,7 +58,8 @@ else { Add-DoctorResult PASS 'Git is available and RepoRoot is a Git worktree.' 
 
 Write-Section 'Repository structure'
 foreach ($file in 'AGENTS.md', 'STATUS.md') { Test-RequiredPath $file Leaf }
-foreach ($dir in 'docs', 'scripts', 'skills-source', 'status\active') { Test-RequiredPath $dir Container }
+foreach ($dir in 'docs', 'scripts', 'skills-source', 'status\active', 'dashboard') { Test-RequiredPath $dir Container }
+foreach ($file in 'dashboard\server.py', 'dashboard\index.html') { Test-RequiredPath $file Leaf }
 
 Write-Section 'Required scripts'
 $requiredScripts = @(
@@ -71,6 +72,7 @@ $requiredScripts = @(
     'deploy',
     'deploy-skills',
     'build-skills',
+    'dashboard',
     'scan-secrets'
 )
 foreach ($name in $requiredScripts) { Test-RequiredPath "scripts\$name.ps1" Leaf }
