@@ -4,9 +4,6 @@
 from __future__ import annotations
 
 import argparse
-from dataclasses import dataclass, field
-from datetime import datetime, timezone
-import hashlib
 import hmac
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import json
@@ -16,429 +13,72 @@ import re
 import secrets
 import shutil
 import signal
-import stat
-import subprocess
 import sys
 import tempfile
 import threading
 import time
+from typing import Any, Callable
 import urllib.error
 from urllib.parse import parse_qs, urlsplit
 import urllib.request
 import uuid
 import webbrowser
-from typing import Any, Callable
 
+_REPO_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
+if _REPO_DIR not in sys.path:
+    sys.path.insert(0, _REPO_DIR)
 
-SKILL_NAME_RE = re.compile(r"^[a-z0-9][a-z0-9._-]*$")
-LOOPBACK_URL_RE = re.compile(r"^http://127\.0\.0\.1:([1-9][0-9]{0,4})/$")
-WINDOWS_USERS_RE = re.compile(r"(?i)[A-Za-z]:[\\/]+Users[\\/]+[^\\/\r\n\t\"'`<>|:;]+")
-POSIX_HOME_RE = re.compile(r"(?:/Users/|/home/)[^/\r\n\t\"'`<>|:;\s]+")
-
-ALLOWED_ENVIRONMENTS = ("work", "full", "minimal")
-ALLOWED_ACTIONS = frozenset({
-    "doctor",
-    "scan",
-    "build-skills",
-    "antigravity-build",
-    "test-suite",
-    "test-all",
-})
-ALLOWED_SYNC_TARGETS = frozenset({
-    "codex-env",
-    "codex-skills",
-    "antigravity-config",
-    "antigravity-plugin",
-    "mcp",
-})
-
-CATEGORY_DEFS: tuple[tuple[str, str], ...] = (
-    ("skills", "技能内容"),
-    ("scripts", "自动化脚本"),
-    ("dashboard", "监控台界面"),
-    ("rules", "全局规则与提示词"),
-    ("config", "环境与清单配置"),
-    ("tests", "自动化测试"),
-    ("docs", "说明与状态文档"),
-    ("other", "其他文件"),
+from dashboard.lib.collectors import (  # noqa: E402
+    ACTION_ZH_MAP,
+    ALLOWED_ENVIRONMENTS,
+    CATEGORY_DEFS,
+    STATUS_CODE_ZH,
+    SkillsCatalogCache,
+    collect_github_status,
+    collect_repo_overview,
+    collect_status_doc,
+    collect_swarm_boards,
+    compute_attention,
+    probe_board_manifest,
+    utc_now_iso,
+)
+from dashboard.lib.jobs import (  # noqa: E402
+    ALLOWED_ACTIONS,
+    JobRecord,
+    RunResult,
+    build_action_command,
+    default_command_runner,
+    finalize_job_locked,
+    kill_process_tree,
+    parse_doctor_structured,
+    run_streaming_subprocess,
+)
+from dashboard.lib.security import (  # noqa: E402
+    LOOPBACK_URL_RE,
+    POSIX_HOME_RE,
+    SKILL_NAME_RE,
+    WINDOWS_USERS_RE,
+    PathSanitizer,
+    _norm_path_key,
+    assert_plain_path_no_reparse,
+    is_reparse_or_symlink,
+    resolve_repo_relative_file,
+)
+from dashboard.lib.sync_preview import (  # noqa: E402
+    ALLOWED_SYNC_TARGETS,
+    PreviewRecord,
+    build_sync_command,
+    compute_managed_workspace_fingerprint,
+    is_managed_source_path,
+    parse_preview_output,
+    parse_sync_status_payload,
 )
 
-STATUS_CODE_ZH = {
-    "??": "未跟踪（新增）",
-    "A": "已暂存新增",
-    "M": "已修改",
-    "D": "已删除",
-    "R": "已重命名",
-    "C": "已复制",
-    "U": "存在冲突",
+
+STATIC_ASSET_ALLOWLIST: dict[str, tuple[str, str]] = {
+    "/static/app.css": ("app.css", "text/css; charset=utf-8"),
+    "/static/app.js": ("app.js", "application/javascript; charset=utf-8"),
 }
-
-ACTION_ZH_MAP = {
-    "install": "新增安装",
-    "add": "新增",
-    "update": "更新覆盖",
-    "unchanged": "已同步（无变化）",
-    "prune": "清理移除",
-    "unknown": "未托管保留",
-    "blocked": "受阻（不可写入）",
-}
-
-
-def utc_now_iso() -> str:
-    return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
-
-
-def _norm_path_key(path: Path | str) -> str:
-    return os.path.normcase(os.path.abspath(os.path.normpath(os.fspath(path))))
-
-
-def is_reparse_or_symlink(path: Path) -> bool:
-    try:
-        info = path.lstat()
-    except OSError:
-        return False
-    if stat.S_ISLNK(info.st_mode):
-        return True
-    attrs = getattr(info, "st_file_attributes", 0)
-    reparse_flag = getattr(stat, "FILE_ATTRIBUTE_REPARSE_POINT", 0x400)
-    return bool(attrs & reparse_flag)
-
-
-def assert_plain_path_no_reparse(path: Path, allow_missing: bool = False) -> Path:
-    abs_path = Path(os.path.abspath(os.path.normpath(os.fspath(path))))
-    chain = list(reversed((abs_path, *abs_path.parents)))
-    for component in chain:
-        if not component.exists() and not is_reparse_or_symlink(component):
-            if allow_missing:
-                return abs_path
-            raise ValueError(f"path does not exist: {component}")
-        if is_reparse_or_symlink(component):
-            raise ValueError(f"reparse point or symlink refused: {component}")
-    return abs_path
-
-
-def resolve_repo_relative_file(repo_root: Path, raw_path: str) -> tuple[str, Path]:
-    if not isinstance(raw_path, str) or not raw_path.strip():
-        raise ValueError("path is required")
-    normalized = raw_path.strip().replace("\\", "/")
-    if normalized.startswith("/") or re.match(r"^[A-Za-z]:", normalized):
-        raise ValueError("absolute path is not allowed")
-    parts = [p for p in normalized.split("/") if p]
-    if not parts or any(p in (".", "..") for p in parts):
-        raise ValueError("path traversal is not allowed")
-    candidate = repo_root.joinpath(*parts)
-    abs_repo = Path(os.path.abspath(os.path.normpath(os.fspath(repo_root))))
-    abs_cand = Path(os.path.abspath(os.path.normpath(os.fspath(candidate))))
-    try:
-        abs_cand.relative_to(abs_repo)
-    except ValueError as exc:
-        raise ValueError("path escapes repository root") from exc
-    assert_plain_path_no_reparse(abs_cand, allow_missing=True)
-    return "/".join(parts), abs_cand
-
-
-class PathSanitizer:
-    """Redacts repository root, user-home, and local state paths in outputs and prompts."""
-
-    def __init__(
-        self,
-        repo_root: Path,
-        home_root: Path | None = None,
-        state_root: Path | None = None,
-    ) -> None:
-        self.repo_variants = self._path_variants(repo_root)
-        home_candidates: list[Path] = []
-        if home_root is not None:
-            home_candidates.append(home_root)
-        env_profile = os.environ.get("USERPROFILE")
-        if env_profile:
-            home_candidates.append(Path(env_profile))
-        env_home = os.environ.get("HOME")
-        if env_home:
-            home_candidates.append(Path(env_home))
-        try:
-            home_candidates.append(Path.home())
-        except Exception:
-            pass
-        self.home_variants: list[str] = []
-        for h in home_candidates:
-            for v in self._path_variants(h):
-                if v not in self.home_variants:
-                    self.home_variants.append(v)
-
-        state_candidates: list[Path] = []
-        if state_root is not None:
-            state_candidates.append(state_root)
-        self.state_variants: list[str] = []
-        for s in state_candidates:
-            for v in self._path_variants(s):
-                if v not in self.state_variants:
-                    self.state_variants.append(v)
-
-        local_app = os.environ.get("LOCALAPPDATA")
-        self.local_app_variants = self._path_variants(Path(local_app)) if local_app else []
-
-    @staticmethod
-    def _path_variants(path: Path) -> list[str]:
-        variants: list[str] = []
-        raw_items = [os.fspath(path), os.path.abspath(os.path.normpath(os.fspath(path)))]
-        try:
-            raw_items.append(os.fspath(path.resolve()))
-        except OSError:
-            pass
-        for item in raw_items:
-            cleaned = item.rstrip("\\/")
-            if not cleaned:
-                continue
-            for v in (cleaned, cleaned.replace("\\", "/"), cleaned.replace("/", "\\")):
-                if v not in variants:
-                    variants.append(v)
-        variants.sort(key=len, reverse=True)
-        return variants
-
-    @staticmethod
-    def _replace_ci(text: str, needle: str, replacement: str) -> str:
-        if not needle:
-            return text
-        pattern = re.compile(re.escape(needle), re.IGNORECASE)
-        return pattern.sub(lambda _: replacement, text)
-
-    def sanitize_str(self, text: str) -> str:
-        if not text:
-            return text
-        out = text
-        for v in self.repo_variants:
-            out = self._replace_ci(out, v, "<repo>")
-        for v in self.state_variants:
-            out = self._replace_ci(out, v, "<state>")
-        for v in self.home_variants:
-            out = self._replace_ci(out, v, "~")
-        for v in self.local_app_variants:
-            out = self._replace_ci(out, v, "%LOCALAPPDATA%")
-        out = WINDOWS_USERS_RE.sub("~", out)
-        out = POSIX_HOME_RE.sub("~", out)
-        return out
-
-    def sanitize_value(self, value: Any) -> Any:
-        if isinstance(value, str):
-            return self.sanitize_str(value)
-        if isinstance(value, list):
-            return [self.sanitize_value(item) for item in value]
-        if isinstance(value, dict):
-            return {
-                self.sanitize_str(k) if isinstance(k, str) else k: self.sanitize_value(v)
-                for k, v in value.items()
-            }
-        return value
-
-
-@dataclass
-class RunResult:
-    exit_code: int
-    stdout: str
-    stderr: str
-    error: str | None = None
-
-
-@dataclass
-class PreviewRecord:
-    preview_id: str
-    target: str
-    environment: str
-    repo_head_sha: str
-    created_at: float
-    expires_at: float
-    can_apply: bool
-    has_prune: bool
-    no_changes: bool
-    workspace_fingerprint: str = ""
-    consumed: bool = False
-
-
-@dataclass
-class JobRecord:
-    id: str
-    kind: str
-    label_zh: str
-    status: str
-    started_at: str
-    started_monotonic: float
-    finished_at: str | None = None
-    duration_sec: float | None = None
-    exit_code: int | None = None
-    summary_zh: str = "正在执行中..."
-    output_sanitized: str = ""
-    structured: dict[str, Any] | None = None
-    preview: dict[str, Any] | None = None
-    ai_prompt: str | None = None
-
-    def to_summary(self) -> dict[str, Any]:
-        return {
-            "id": self.id,
-            "kind": self.kind,
-            "label_zh": self.label_zh,
-            "status": self.status,
-            "started_at": self.started_at,
-            "finished_at": self.finished_at,
-            "duration_sec": self.duration_sec,
-            "exit_code": self.exit_code,
-            "summary_zh": self.summary_zh,
-        }
-
-    def to_detail(self) -> dict[str, Any]:
-        data = self.to_summary()
-        data["output_sanitized"] = self.output_sanitized
-        data["structured"] = self.structured
-        data["preview"] = self.preview
-        data["ai_prompt"] = self.ai_prompt
-        return data
-
-
-def default_command_runner(
-    argv: list[str],
-    cwd: Path,
-    timeout: float = 300.0,
-) -> RunResult:
-    try:
-        completed = subprocess.run(
-            argv,
-            cwd=os.fspath(cwd),
-            capture_output=True,
-            text=True,
-            encoding="utf-8",
-            errors="replace",
-            timeout=timeout,
-            shell=False,
-        )
-        return RunResult(
-            exit_code=completed.returncode,
-            stdout=completed.stdout or "",
-            stderr=completed.stderr or "",
-        )
-    except subprocess.TimeoutExpired as exc:
-        out = exc.stdout.decode("utf-8", errors="replace") if isinstance(exc.stdout, bytes) else (exc.stdout or "")
-        err = exc.stderr.decode("utf-8", errors="replace") if isinstance(exc.stderr, bytes) else (exc.stderr or "")
-        return RunResult(exit_code=124, stdout=out, stderr=err, error=f"command timed out after {timeout}s")
-    except OSError as exc:
-        return RunResult(exit_code=127, stdout="", stderr="", error=str(exc))
-
-
-def _extract_json_payload(raw_text: str) -> Any | None:
-    text = (raw_text or "").strip()
-    if not text:
-        return None
-    try:
-        return json.loads(text)
-    except json.JSONDecodeError:
-        pass
-    lines = text.splitlines()
-    for idx, line in enumerate(lines):
-        stripped = line.lstrip()
-        if not (stripped.startswith("{") or stripped.startswith("[")):
-            continue
-        candidate = "\n".join(lines[idx:]).strip()
-        try:
-            return json.loads(candidate)
-        except json.JSONDecodeError:
-            closing = "}" if stripped.startswith("{") else "]"
-            pos = candidate.rfind(closing)
-            if pos > 0:
-                try:
-                    return json.loads(candidate[: pos + 1])
-                except json.JSONDecodeError:
-                    continue
-    return None
-
-
-def _categorize_repo_path(rel_path: str) -> str:
-    norm = rel_path.replace("\\", "/")
-    if norm.startswith("skills-source/") or norm.startswith("codex/skills/"):
-        return "skills"
-    if norm.startswith("scripts/") or norm in ("bootstrap.ps1", "start-dashboard.cmd"):
-        return "scripts"
-    if norm.startswith("dashboard/"):
-        return "dashboard"
-    if norm == "AGENTS.md" or norm.startswith("codex/") or norm.startswith("antigravity/"):
-        return "rules"
-    if (
-        norm.startswith("harness-source/")
-        or norm.startswith("manifests/")
-        or norm.startswith("tools/")
-        or norm.startswith(".agent-harness/")
-        or norm.startswith(".github/")
-        or norm in (".gitleaks.toml", ".gitignore", ".gitattributes")
-    ):
-        return "config"
-    if norm.startswith("tests/"):
-        return "tests"
-    if norm in ("README.md", "STATUS.md") or norm.startswith("docs/") or norm.startswith("status/"):
-        return "docs"
-    return "other"
-
-
-def _status_code_to_zh(code: str) -> str:
-    cleaned = code.strip()
-    if cleaned == "??":
-        return STATUS_CODE_ZH["??"]
-    if not cleaned:
-        return "已变更"
-    for ch in cleaned:
-        if ch in STATUS_CODE_ZH:
-            return STATUS_CODE_ZH[ch]
-    return "已变更"
-
-
-def _parse_frontmatter(text: str) -> dict[str, str]:
-    lines = text.splitlines()
-    if not lines or lines[0].strip() != "---":
-        return {}
-    end_idx = None
-    for i in range(1, len(lines)):
-        if lines[i].strip() == "---":
-            end_idx = i
-            break
-    if end_idx is None:
-        return {}
-    result: dict[str, str] = {}
-    current_key: str | None = None
-    buffer: list[str] = []
-    for line in lines[1:end_idx]:
-        m = re.match(r"^([A-Za-z0-9_-]+):\s*(.*)$", line)
-        if m and not line.startswith((" ", "\t")):
-            if current_key is not None and current_key not in result:
-                result[current_key] = " ".join(buffer).strip()
-            current_key = m.group(1)
-            raw_val = m.group(2).strip()
-            if raw_val in ("|", ">", "|-", ">-"):
-                buffer = []
-            else:
-                if (raw_val.startswith('"') and raw_val.endswith('"')) or (
-                    raw_val.startswith("'") and raw_val.endswith("'")
-                ):
-                    raw_val = raw_val[1:-1]
-                result[current_key] = raw_val
-                current_key = None
-                buffer = []
-        elif current_key is not None:
-            buffer.append(line.strip())
-    if current_key is not None and current_key not in result:
-        result[current_key] = " ".join(buffer).strip()
-    return result
-
-
-def _extract_psd1_array(text: str, key_pattern: str) -> list[str]:
-    m = re.search(key_pattern + r"\s*=\s*@\((.*?)\)", text, flags=re.DOTALL)
-    if not m:
-        return []
-    return re.findall(r"['\"]([^'\"]+)['\"]", m.group(1))
-
-
-def _extract_psd1_string(text: str, key_name: str) -> str:
-    m = re.search(rf"\b{re.escape(key_name)}\s*=\s*'([^']*)'", text)
-    if m:
-        return m.group(1)
-    m = re.search(rf'\b{re.escape(key_name)}\s*=\s*"([^"]*)"', text)
-    return m.group(1) if m else ""
 
 
 class DashboardApp:
@@ -459,6 +99,7 @@ class DashboardApp:
         self.home_root = Path(os.path.abspath(os.path.normpath(os.fspath(home_root)))) if home_root else None
         self.state_root = Path(os.path.abspath(os.path.normpath(os.fspath(state_root)))) if state_root else None
         self.offline = offline
+        self._has_custom_runner = command_runner is not None
         self.runner = command_runner or default_command_runner
         self.html_override = html_override
         self.port_getter = port_getter or (lambda: 0)
@@ -474,6 +115,7 @@ class DashboardApp:
         self._watched_manifests: list[Path] = []
         self._sync_status_cache: dict[str, Any] | None = None
         self._github_cache: dict[str, Any] | None = None
+        self._skills_catalog_cache = SkillsCatalogCache()
 
     @property
     def port(self) -> int:
@@ -511,6 +153,18 @@ class DashboardApp:
                 return None
         return html_text.replace("__DASHBOARD_TOKEN__", self.token).encode("utf-8")
 
+    def read_static_asset(self, filename: str) -> bytes | None:
+        static_dir = self.repo_root / "dashboard" / "static"
+        asset_path = static_dir / filename
+        try:
+            assert_plain_path_no_reparse(static_dir, allow_missing=False)
+            assert_plain_path_no_reparse(asset_path, allow_missing=False)
+            if not asset_path.is_file():
+                return None
+            return asset_path.read_bytes()
+        except (OSError, ValueError):
+            return None
+
     def _run_git(self, args: list[str], timeout: float = 3.0) -> RunResult:
         cmd = ["git", "-c", "core.quotepath=false", "-C", os.fspath(self.repo_root), *args]
         return self.runner(cmd, cwd=self.repo_root, timeout=timeout)
@@ -523,510 +177,31 @@ class DashboardApp:
 
     @staticmethod
     def _is_managed_source_path(rel_path: str) -> bool:
-        norm = rel_path.replace("\\", "/").lstrip("/")
-        if norm == "codex/skills" or norm.startswith("codex/skills/") or norm == "manifests/managed-skills.codex.txt":
-            return False
-        if norm in ("manifests/whitelist.psd1", ".gitleaks.toml"):
-            return True
-        return norm.startswith(("skills-source/", "codex/", "antigravity/", "harness-source/"))
+        return is_managed_source_path(rel_path)
 
     def _compute_managed_workspace_fingerprint(self) -> str:
-        head_sha = self._get_git_head_sha()
-        status_res = self._run_git(
-            ["status", "--porcelain=v1", "--untracked-files=all"],
-            timeout=2.0,
+        return compute_managed_workspace_fingerprint(
+            self.repo_root,
+            self._get_git_head_sha(),
+            self._run_git,
         )
-        hasher = hashlib.sha256()
-        hasher.update(f"HEAD:{head_sha}\n".encode("utf-8"))
-        if status_res.exit_code != 0:
-            hasher.update(f"STATUS_ERR:{status_res.exit_code}\n".encode("utf-8"))
-            return hasher.hexdigest()
-
-        matched: list[tuple[str, str]] = []
-        for line in status_res.stdout.splitlines():
-            if len(line) < 4:
-                continue
-            code = line[:2]
-            raw_path = line[3:].strip()
-            if " -> " in raw_path:
-                raw_path = raw_path.split(" -> ", 1)[1].strip()
-            if raw_path.startswith('"') and raw_path.endswith('"'):
-                raw_path = raw_path[1:-1]
-            norm_path = raw_path.replace("\\", "/")
-            if not self._is_managed_source_path(norm_path):
-                continue
-            matched.append((norm_path, code))
-
-        for norm_path, code in sorted(matched):
-            digest = "missing"
-            try:
-                _, abs_path = resolve_repo_relative_file(self.repo_root, norm_path)
-                if is_reparse_or_symlink(abs_path):
-                    digest = "reparse"
-                elif abs_path.is_dir():
-                    digest = "dir"
-                elif abs_path.is_file():
-                    file_hash = hashlib.sha256()
-                    with abs_path.open("rb") as fh:
-                        while True:
-                            chunk = fh.read(65536)
-                            if not chunk:
-                                break
-                            file_hash.update(chunk)
-                    digest = file_hash.hexdigest()
-            except (OSError, ValueError):
-                digest = "reparse"
-            hasher.update(f"{code}\t{norm_path}\t{digest}\n".encode("utf-8"))
-        return hasher.hexdigest()
-
-    def _collect_repo_overview(self) -> dict[str, Any]:
-        status_res = self._run_git(
-            ["status", "--porcelain=v1", "--branch", "--untracked-files=all"],
-            timeout=2.0,
-        )
-        branch = ""
-        upstream = ""
-        ahead = 0
-        behind = 0
-        grouped: dict[str, list[dict[str, str]]] = {cid: [] for cid, _ in CATEGORY_DEFS}
-        total_changes = 0
-
-        if status_res.exit_code == 0:
-            for line in status_res.stdout.splitlines():
-                if line.startswith("## "):
-                    header = line[3:].strip()
-                    if header.startswith("No commits yet on "):
-                        branch = header[len("No commits yet on ") :].strip()
-                        continue
-                    bracket_m = re.search(r"\s+\[(.+)\]$", header)
-                    if bracket_m:
-                        info = bracket_m.group(1)
-                        header = header[: bracket_m.start()].strip()
-                        ahead_m = re.search(r"ahead\s+(\d+)", info)
-                        behind_m = re.search(r"behind\s+(\d+)", info)
-                        if ahead_m:
-                            ahead = int(ahead_m.group(1))
-                        if behind_m:
-                            behind = int(behind_m.group(1))
-                    if "..." in header:
-                        branch, upstream = [p.strip() for p in header.split("...", 1)]
-                    else:
-                        branch = header
-                    continue
-                if len(line) < 4:
-                    continue
-                code = line[:2]
-                raw_path = line[3:].strip()
-                if " -> " in raw_path:
-                    raw_path = raw_path.split(" -> ", 1)[1].strip()
-                if raw_path.startswith('"') and raw_path.endswith('"'):
-                    raw_path = raw_path[1:-1]
-                rel_path = raw_path.replace("\\", "/")
-                cat_id = _categorize_repo_path(rel_path)
-                grouped[cat_id].append({
-                    "path": self.sanitizer.sanitize_str(rel_path),
-                    "code": code.strip() or code,
-                    "status_zh": _status_code_to_zh(code),
-                })
-                total_changes += 1
-
-        categories = []
-        for cid, label in CATEGORY_DEFS:
-            files = grouped[cid]
-            if files:
-                categories.append({
-                    "id": cid,
-                    "label": label,
-                    "count": len(files),
-                    "files": files,
-                })
-
-        log_res = self._run_git(
-            ["log", "-n", "8", "--format=%h%x1f%s%x1f%cI%x1f%cr"],
-            timeout=2.0,
-        )
-        recent_commits: list[dict[str, str]] = []
-        head_short = ""
-        head_subject = ""
-        if log_res.exit_code == 0:
-            for line in log_res.stdout.splitlines():
-                parts = line.split("\x1f")
-                if len(parts) < 4:
-                    continue
-                c_hash, c_subj, c_date, c_rel = parts[0], parts[1], parts[2], parts[3]
-                subj_clean = self.sanitizer.sanitize_str(c_subj)
-                if not head_short:
-                    head_short = c_hash
-                    head_subject = subj_clean
-                recent_commits.append({
-                    "hash": c_hash,
-                    "subject": subj_clean,
-                    "date": c_date,
-                    "relative": c_rel,
-                })
-
-        return {
-            "name": self.repo_root.name,
-            "branch": branch or "HEAD",
-            "upstream": upstream,
-            "ahead": ahead,
-            "behind": behind,
-            "head_short": head_short,
-            "head_subject": head_subject,
-            "dirty": total_changes > 0,
-            "total_changes": total_changes,
-            "categories": categories,
-            "recent_commits": recent_commits,
-        }
-
-    def _collect_status_doc(self) -> dict[str, Any]:
-        last_updated = ""
-        open_items: list[dict[str, str]] = []
-        status_path = self.repo_root / "STATUS.md"
-        if status_path.is_file() and not is_reparse_or_symlink(status_path):
-            try:
-                text = status_path.read_text(encoding="utf-8", errors="replace")
-                m = re.search(r"^Last updated:\s*(.+)$", text, flags=re.MULTILINE)
-                if m:
-                    last_updated = m.group(1).strip().rstrip(".")
-                sec_m = re.search(r"^##\s+Open items\s*\r?\n(.*?)(?=^##\s+|\Z)", text, flags=re.MULTILINE | re.DOTALL)
-                if sec_m:
-                    bullets = re.split(r"(?m)^-\s+", sec_m.group(1).strip())
-                    for raw_b in bullets:
-                        item = " ".join(line.strip() for line in raw_b.splitlines() if line.strip())
-                        if not item:
-                            continue
-                        title_m = re.match(r"^\*\*(.+?)\*\*\s*(.*)$", item)
-                        if title_m:
-                            title = title_m.group(1).strip().rstrip(".")
-                            summary = title_m.group(2).strip()
-                        else:
-                            title = item[:60]
-                            summary = item
-                        open_items.append({
-                            "title": self.sanitizer.sanitize_str(title),
-                            "summary": self.sanitizer.sanitize_str(summary),
-                        })
-            except OSError:
-                pass
-
-        active_tasks: list[dict[str, str]] = []
-        active_dir = self.repo_root / "status" / "active"
-        if active_dir.is_dir() and not is_reparse_or_symlink(active_dir):
-            for f in sorted(active_dir.glob("*.md")):
-                if f.name.upper() == "README.MD" or is_reparse_or_symlink(f) or not f.is_file():
-                    continue
-                try:
-                    raw = f.read_text(encoding="utf-8", errors="replace")[:2048]
-                except OSError:
-                    continue
-                lines = [ln.strip() for ln in raw.splitlines() if ln.strip()]
-                title = f.stem
-                excerpt_parts: list[str] = []
-                for ln in lines:
-                    if ln.startswith("# ") and title == f.stem:
-                        title = ln[2:].strip()
-                    elif not ln.startswith("#"):
-                        excerpt_parts.append(ln)
-                        if sum(len(p) for p in excerpt_parts) >= 220:
-                            break
-                excerpt = " ".join(excerpt_parts)[:220]
-                active_tasks.append({
-                    "file": f.name,
-                    "title": self.sanitizer.sanitize_str(title),
-                    "excerpt": self.sanitizer.sanitize_str(excerpt),
-                })
-
-        return {
-            "last_updated": self.sanitizer.sanitize_str(last_updated),
-            "open_items": open_items,
-            "active_tasks": active_tasks,
-        }
 
     def _collect_skills_catalog(self) -> dict[str, Any]:
-        env_dir = self.repo_root / "harness-source" / "envs"
-        environments: list[dict[str, Any]] = []
-        env_skills_map: dict[str, set[str]] = {}
-        if env_dir.is_dir() and not is_reparse_or_symlink(env_dir):
-            env_files = sorted(env_dir.glob("*.psd1"), key=lambda p: (ALLOWED_ENVIRONMENTS.index(p.stem) if p.stem in ALLOWED_ENVIRONMENTS else 99, p.stem))
-            for ef in env_files:
-                if is_reparse_or_symlink(ef) or not ef.is_file():
-                    continue
-                try:
-                    text = ef.read_text(encoding="utf-8", errors="replace")
-                except OSError:
-                    continue
-                desc = _extract_psd1_string(text, "Description")
-                codex_skills = _extract_psd1_array(text, r"\bCodex")
-                env_skills_map[ef.stem] = set(codex_skills)
-                environments.append({
-                    "name": ef.stem,
-                    "description": self.sanitizer.sanitize_str(desc),
-                    "count": len(codex_skills),
-                    "skills": codex_skills,
-                })
-
-        ag_plugin_skills: set[str] = set()
-        plugins_psd1 = self.repo_root / "harness-source" / "antigravity" / "plugins.psd1"
-        if plugins_psd1.is_file() and not is_reparse_or_symlink(plugins_psd1):
-            try:
-                p_text = plugins_psd1.read_text(encoding="utf-8", errors="replace")
-                ag_plugin_skills = set(_extract_psd1_array(p_text, r"\bSkills"))
-            except OSError:
-                pass
-
-        skills: list[dict[str, Any]] = []
-        shared_count = 0
-        codex_only_count = 0
-        for scope, scope_zh in (("shared", "双端共享"), ("codex-only", "Codex 专用")):
-            scope_dir = self.repo_root / "skills-source" / scope
-            if not scope_dir.is_dir() or is_reparse_or_symlink(scope_dir):
-                continue
-            for item in sorted(scope_dir.iterdir(), key=lambda p: p.name):
-                if not item.is_dir() or is_reparse_or_symlink(item):
-                    continue
-                skill_md = item / "SKILL.md"
-                if not skill_md.is_file() or is_reparse_or_symlink(skill_md):
-                    continue
-                try:
-                    content = skill_md.read_text(encoding="utf-8", errors="replace")[:4096]
-                except OSError:
-                    continue
-                fm = _parse_frontmatter(content)
-                name = fm.get("name") or item.name
-                desc = fm.get("description", "")
-                in_envs = [e["name"] for e in environments if name in env_skills_map.get(e["name"], set())]
-                in_ag = scope == "shared" and name in ag_plugin_skills
-                if scope == "shared":
-                    shared_count += 1
-                else:
-                    codex_only_count += 1
-                skills.append({
-                    "name": name,
-                    "scope": scope,
-                    "scope_zh": scope_zh,
-                    "description": self.sanitizer.sanitize_str(desc),
-                    "in_envs": in_envs,
-                    "in_antigravity_plugin": in_ag,
-                    "path": f"skills-source/{scope}/{item.name}/SKILL.md",
-                })
-
-        return {
-            "total": len(skills),
-            "shared_count": shared_count,
-            "codex_only_count": codex_only_count,
-            "environments": environments,
-            "skills": skills,
-        }
-
-    def _probe_board_manifest(self, manifest_path: Path) -> dict[str, Any]:
-        info_path = manifest_path.with_name("board-server.json")
-        run_name = manifest_path.parent.name
-        try:
-            assert_plain_path_no_reparse(manifest_path, allow_missing=False)
-            m_data = json.loads(manifest_path.read_text(encoding="utf-8-sig"))
-            if isinstance(m_data, dict) and isinstance(m_data.get("run"), str) and m_data["run"].strip():
-                run_name = m_data["run"].strip()
-        except (OSError, ValueError, json.JSONDecodeError):
-            pass
-
-        url = ""
-        running = False
-        event_count = 0
-        ui_gets = 0
-        state_polls = 0
-
-        if info_path.is_file() and not is_reparse_or_symlink(info_path):
-            try:
-                assert_plain_path_no_reparse(info_path, allow_missing=False)
-                b_data = json.loads(info_path.read_text(encoding="utf-8-sig"))
-                if isinstance(b_data, dict):
-                    if isinstance(b_data.get("run"), str) and b_data["run"].strip():
-                        run_name = b_data["run"].strip()
-                    raw_url = b_data.get("url")
-                    if isinstance(raw_url, str) and LOOPBACK_URL_RE.fullmatch(raw_url):
-                        port = int(LOOPBACK_URL_RE.fullmatch(raw_url).group(1))  # type: ignore[union-attr]
-                        if 1 <= port <= 65535:
-                            url = raw_url
-            except (OSError, ValueError, json.JSONDecodeError):
-                pass
-
-        if url:
-            opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
-            try:
-                with opener.open(f"{url}api/health", timeout=0.4) as resp:
-                    if resp.status == 200:
-                        health = json.loads(resp.read().decode("utf-8"))
-                        if isinstance(health, dict) and health.get("ok") is True:
-                            running = True
-                            event_count = int(health.get("eventCount") or 0)
-                            ui_gets = int(health.get("uiGets") or 0)
-                            state_polls = int(health.get("statePolls") or 0)
-                            if isinstance(health.get("run"), str) and health["run"].strip():
-                                run_name = health["run"].strip()
-            except (OSError, ValueError, json.JSONDecodeError, urllib.error.URLError, TimeoutError):
-                running = False
-
-        return {
-            "run": self.sanitizer.sanitize_str(run_name),
-            "manifest_path_display": self.sanitizer.sanitize_str(os.fspath(manifest_path)),
-            "url": url,
-            "running": running,
-            "event_count": event_count,
-            "ui_gets": ui_gets,
-            "state_polls": state_polls,
-        }
-
-    def _collect_swarm_boards(self) -> dict[str, Any]:
-        candidates: list[Path] = []
-        seen: set[str] = set()
-
-        def _add_candidate(p: Path) -> None:
-            key = _norm_path_key(p)
-            if key not in seen:
-                seen.add(key)
-                candidates.append(p)
-
-        tmp_root = self.repo_root / "tmp"
-        if tmp_root.is_dir() and not is_reparse_or_symlink(tmp_root):
-            base_depth = len(tmp_root.parts)
-            for root_str, dirnames, filenames in os.walk(tmp_root, followlinks=False):
-                cur = Path(root_str)
-                if is_reparse_or_symlink(cur):
-                    dirnames[:] = []
-                    continue
-                depth = len(cur.parts) - base_depth
-                dirnames[:] = [
-                    d
-                    for d in dirnames
-                    if depth < 4 and not is_reparse_or_symlink(cur / d)
-                ]
-                if "manifest.json" in filenames and "board-server.json" in filenames:
-                    m_path = cur / "manifest.json"
-                    if not is_reparse_or_symlink(m_path):
-                        _add_candidate(m_path)
-
-        with self._lock:
-            watched = list(self._watched_manifests)
-        for p in watched:
-            if p.is_file() and not is_reparse_or_symlink(p):
-                _add_candidate(p)
-
-        boards = [self._probe_board_manifest(p) for p in candidates]
-        return {"boards": boards}
-
-    def _compute_attention(
-        self,
-        repo: dict[str, Any],
-        status_doc: dict[str, Any],
-        sync_cached: dict[str, Any] | None,
-        gh_cached: dict[str, Any] | None,
-    ) -> list[dict[str, Any]]:
-        cards: list[dict[str, Any]] = []
-
-        if sync_cached is not None:
-            lvl = sync_cached.get("summary_level")
-            if lvl in ("warn", "error"):
-                cards.append({
-                    "level": lvl,
-                    "title": "双端配置存在差异或异常" if lvl == "warn" else "双端状态检查报错",
-                    "detail": self.sanitizer.sanitize_str(str(sync_cached.get("summary_zh") or "请先运行预览或体检排查。")),
-                    "action_type": "preview" if lvl == "warn" else "doctor",
-                    "action_label": "前往同步预览" if lvl == "warn" else "运行健康体检",
-                    "ai_prompt": self.sanitizer.sanitize_str(
-                        f"请帮我分析 ai-agent-dotfiles 当前双端同步状态（{sync_cached.get('summary_zh', '')}），判断是否需要执行同步并给出最小安全操作。"
-                    ),
-                })
-
-        if gh_cached and gh_cached.get("available"):
-            latest_by_branch: dict[str, dict[str, Any]] = {}
-            for run in gh_cached.get("ci_runs", []):
-                if not isinstance(run, dict):
-                    continue
-                branch_name = str(run.get("headBranch") or "")
-                existing = latest_by_branch.get(branch_name)
-                if existing is None:
-                    latest_by_branch[branch_name] = run
-                else:
-                    new_ts = str(run.get("createdAt") or "")
-                    old_ts = str(existing.get("createdAt") or "")
-                    if new_ts and (not old_ts or new_ts > old_ts):
-                        latest_by_branch[branch_name] = run
-
-            current_branch = str(repo.get("branch") or "")
-            ordered_branches: list[str] = []
-            for priority_branch in (current_branch, "main"):
-                if priority_branch and priority_branch in latest_by_branch and priority_branch not in ordered_branches:
-                    ordered_branches.append(priority_branch)
-            for branch_name in latest_by_branch:
-                if branch_name not in ordered_branches:
-                    ordered_branches.append(branch_name)
-
-            for branch_name in ordered_branches:
-                run = latest_by_branch[branch_name]
-                conclusion = (run.get("conclusion") or "").lower()
-                if conclusion in ("failure", "timed_out", "cancelled"):
-                    cards.append({
-                        "level": "error",
-                        "title": f"GitHub CI 失败：{run.get('workflowName', 'Validate')}",
-                        "detail": self.sanitizer.sanitize_str(
-                            f"分支 {run.get('headBranch', '')} 提交「{run.get('displayTitle', '')}」结果为 {conclusion}。"
-                        ),
-                        "action_type": "ai",
-                        "action_label": "复制给 AI 排查 CI",
-                        "ai_prompt": self.sanitizer.sanitize_str(
-                            f"GitHub CI 工作流 {run.get('workflowName', '')}（run {run.get('databaseId', '')}，分支 {run.get('headBranch', '')}）失败，请帮我检查失败日志并定位原因。"
-                        ),
-                    })
-                    break
-
-        if repo.get("dirty"):
-            n = int(repo.get("total_changes") or 0)
-            cards.append({
-                "level": "warn",
-                "title": f"工作区有 {n} 项未提交改动",
-                "detail": "请核对改动内容，确认无误后再提交或同步。",
-                "action_type": "ai",
-                "action_label": "复制给 AI 复核并提交",
-                "ai_prompt": self.sanitizer.sanitize_str(
-                    f"请帮我复核当前仓库（分支 {repo.get('branch', '')}）中的 {n} 项未提交改动，运行必要校验后准备小步提交。"
-                ),
-            })
-
-        active_tasks = status_doc.get("active_tasks") or []
-        if active_tasks:
-            titles = "、".join(t.get("file", "") for t in active_tasks[:3])
-            cards.append({
-                "level": "warn",
-                "title": f"有 {len(active_tasks)} 个进行中的任务记录",
-                "detail": self.sanitizer.sanitize_str(f"status/active/ 中存在：{titles}"),
-                "action_type": "none",
-                "action_label": "",
-                "ai_prompt": "",
-            })
-
-        if not cards:
-            cards.append({
-                "level": "ok",
-                "title": "一切正常，工作区干净",
-                "detail": "当前没有未提交改动或已知阻塞项，可按需刷新双端同步状态。",
-                "action_type": "none",
-                "action_label": "",
-                "ai_prompt": "",
-            })
-        return cards
+        return self._skills_catalog_cache.get_or_collect(self.repo_root, self.sanitizer)
 
     def get_overview(self) -> dict[str, Any]:
-        repo = self._collect_repo_overview()
-        status_doc = self._collect_status_doc()
+        repo = collect_repo_overview(self.repo_root, self.sanitizer, self._run_git)
+        status_doc = collect_status_doc(self.repo_root, self.sanitizer)
         skills_catalog = self._collect_skills_catalog()
-        swarm = self._collect_swarm_boards()
+        with self._lock:
+            watched = list(self._watched_manifests)
+        swarm = collect_swarm_boards(self.repo_root, watched, self.sanitizer)
         with self._lock:
             active_job = self._active_job_summary_locked()
             recent_jobs = [self._jobs[jid].to_summary() for jid in reversed(self._job_order[-10:])]
             sync_cached = self._sync_status_cache
             gh_cached = self._github_cache
-        attention = self._compute_attention(repo, status_doc, sync_cached, gh_cached)
+        attention = compute_attention(repo, status_doc, sync_cached, gh_cached, self.sanitizer)
         return {
             "generated_at": utc_now_iso(),
             "repo": repo,
@@ -1130,182 +305,7 @@ class DashboardApp:
             argv.extend(["-StateRoot", os.fspath(self.state_root)])
 
         res = self.runner(argv, cwd=self.repo_root, timeout=30.0)
-        combined_raw = "\n".join(part for part in (res.stdout, res.stderr, res.error or "") if part)
-        raw_sanitized = self.sanitizer.sanitize_str(combined_raw)
-        parsed = _extract_json_payload(res.stdout)
-        fetched_at = utc_now_iso()
-
-        if not isinstance(parsed, dict):
-            result = {
-                "ok": False,
-                "fetched_at": fetched_at,
-                "exit_code": res.exit_code,
-                "summary_level": "error",
-                "summary_zh": "无法解析双端同步状态输出",
-                "environment": {"recorded": "unavailable", "available": [], "failed": True, "summary_zh": "环境状态不可用"},
-                "config": {"items": [], "summary": None, "summary_zh": "配置状态不可用"},
-                "antigravity": {"action": "error", "summary_zh": "Antigravity 插件状态不可用"},
-                "mcp": {"items": [], "summary": None, "summary_zh": "MCP 状态不可用"},
-                "attention": [],
-                "raw_sanitized": raw_sanitized,
-                "error": self.sanitizer.sanitize_str(res.error or "status -Json 未返回有效 JSON"),
-            }
-            with self._lock:
-                self._sync_status_cache = result
-            return result
-
-        sanitized_report = self.sanitizer.sanitize_value(parsed)
-        env_raw = sanitized_report.get("Environment") or {}
-        cfg_raw = sanitized_report.get("Config")
-        ag_raw = sanitized_report.get("Antigravity") or {}
-        mcp_raw = sanitized_report.get("Mcp") or {}
-        summary_raw = sanitized_report.get("Summary") or {}
-
-        recorded_env = env_raw.get("Recorded") or "unavailable"
-        env_failed = bool(env_raw.get("Failed"))
-        env_summary_zh = (
-            "未检测到技能部署记录" if recorded_env == "unavailable" else f"上次记录环境：{recorded_env}"
-        )
-
-        cfg_items = cfg_raw if isinstance(cfg_raw, list) else []
-        cfg_summary = summary_raw.get("Config") if isinstance(summary_raw, dict) else None
-        if isinstance(cfg_summary, dict):
-            cfg_differs = int(cfg_summary.get("differs", 0) + cfg_summary.get("repo-only", 0))
-            cfg_home_only = int(cfg_summary.get("home-only", 0))
-        else:
-            cfg_differs = sum(1 for it in cfg_items if isinstance(it, dict) and it.get("Status") in ("differs", "repo-only"))
-            cfg_home_only = sum(1 for it in cfg_items if isinstance(it, dict) and it.get("Status") == "home-only")
-        if isinstance(cfg_raw, dict) and cfg_raw.get("Error"):
-            cfg_summary_zh = f"配置检查出错：{cfg_raw.get('Error')}"
-        elif cfg_differs > 0:
-            cfg_summary_zh = f"有 {cfg_differs} 项受管规则与仓库存在差异"
-            if cfg_home_only > 0:
-                cfg_summary_zh += f"（另有 {cfg_home_only} 项仅本机存在）"
-        elif cfg_home_only > 0:
-            cfg_summary_zh = f"受管规则已对齐（另有 {cfg_home_only} 项仅本机存在）"
-        else:
-            cfg_summary_zh = "Codex 与 Antigravity 全局规则均已对齐"
-
-        ag_action = str(ag_raw.get("Action") or summary_raw.get("Antigravity") or "unavailable")
-        ag_req = ag_raw.get("ApplyRequirement")
-        ag_externals = ag_raw.get("ExternalExpectations") if isinstance(ag_raw.get("ExternalExpectations"), list) else []
-        ext_blocked = 0
-        ext_drift = 0
-        for ext in ag_externals:
-            if not isinstance(ext, dict):
-                continue
-            ext_state = str(ext.get("State") or "")
-            ext_act = str(ext.get("Action") or "")
-            if ext_state != "unchanged" and (ext_state == "blocked" or ext_act == "blocked"):
-                ext_blocked += 1
-            if ext_state in ("missing", "different"):
-                ext_drift += 1
-
-        if ag_raw.get("Error"):
-            ag_summary_zh = f"插件状态异常：{ag_raw.get('Error')}"
-        else:
-            if ag_action == "unchanged":
-                ag_summary_zh = f"自有插件 v{ag_raw.get('Version', '?')} 已安装且一致"
-            elif ag_action == "update" and ag_req == "build-with-current-agy-before-apply":
-                ag_summary_zh = "插件有新版本，需先使用当前 agy 重新打包后再部署"
-            elif ag_action in ("install", "update"):
-                ag_summary_zh = f"自有插件可执行{ACTION_ZH_MAP.get(ag_action, ag_action)}"
-            else:
-                ag_summary_zh = f"插件状态：{ag_raw.get('Reason') or ag_action}"
-            ext_notes: list[str] = []
-            if ext_blocked > 0:
-                ext_notes.append(f"{ext_blocked} 个外部插件受阻")
-            if ext_drift > 0:
-                ext_notes.append(f"{ext_drift} 个外部插件存在差异/缺失")
-            if ext_notes:
-                ag_summary_zh += "；" + "、".join(ext_notes)
-
-        mcp_items = mcp_raw.get("Items") if isinstance(mcp_raw, dict) and isinstance(mcp_raw.get("Items"), list) else []
-        mcp_summary = mcp_raw.get("Summary") if isinstance(mcp_raw, dict) else None
-        if isinstance(mcp_raw, dict) and mcp_raw.get("Error"):
-            mcp_summary_zh = f"MCP 状态异常：{mcp_raw.get('Error')}"
-        elif isinstance(mcp_summary, dict):
-            blocked = int(mcp_summary.get("blocked", 0))
-            pending = int(mcp_summary.get("add", 0)) + int(mcp_summary.get("update", 0))
-            if blocked > 0:
-                mcp_summary_zh = f"有 {blocked} 项 MCP 映射受阻"
-            elif pending > 0:
-                mcp_summary_zh = f"有 {pending} 项 MCP 映射待同步"
-            else:
-                mcp_summary_zh = "受管 MCP 服务已对齐"
-        else:
-            mcp_summary_zh = "MCP 状态不可用"
-
-        has_error = res.exit_code != 0 or env_failed or bool(
-            (isinstance(cfg_raw, dict) and cfg_raw.get("Error"))
-            or ag_raw.get("Error")
-            or (isinstance(mcp_raw, dict) and mcp_raw.get("Error"))
-        )
-        has_blocked = (
-            ag_action == "blocked"
-            or ag_req == "build-with-current-agy-before-apply"
-            or ext_blocked > 0
-            or (isinstance(mcp_summary, dict) and int(mcp_summary.get("blocked", 0)) > 0)
-        )
-        has_drift = (
-            cfg_differs > 0
-            or ag_action in ("install", "update")
-            or ext_drift > 0
-            or (isinstance(mcp_summary, dict) and (int(mcp_summary.get("add", 0)) + int(mcp_summary.get("update", 0))) > 0)
-        )
-
-        if has_error or has_blocked:
-            summary_level = "error"
-            summary_zh = "检测到状态异常或受阻项，请先排查后再执行写入"
-        elif has_drift or recorded_env == "unavailable":
-            summary_level = "warn"
-            summary_zh = "部分配置或资产与仓库不完全一致，可先预览差异"
-        else:
-            summary_level = "ok"
-            summary_zh = "双端规则、插件与受管 MCP 均已同步"
-
-        attention: list[dict[str, Any]] = []
-
-        result = {
-            "ok": res.exit_code == 0,
-            "fetched_at": fetched_at,
-            "exit_code": res.exit_code,
-            "summary_level": summary_level,
-            "summary_zh": summary_zh,
-            "environment": {
-                "recorded": recorded_env,
-                "reason": env_raw.get("Reason"),
-                "available": env_raw.get("Available") or [],
-                "failed": env_failed,
-                "summary_zh": env_summary_zh,
-            },
-            "config": {
-                "items": cfg_items,
-                "summary": cfg_summary,
-                "error": cfg_raw.get("Error") if isinstance(cfg_raw, dict) else None,
-                "summary_zh": cfg_summary_zh,
-            },
-            "antigravity": {
-                "name": ag_raw.get("Name"),
-                "version": ag_raw.get("Version"),
-                "action": ag_action,
-                "reason": ag_raw.get("Reason"),
-                "enabled": ag_raw.get("Enabled"),
-                "apply_requirement": ag_req,
-                "external": ag_raw.get("ExternalExpectations") or [],
-                "error": ag_raw.get("Error"),
-                "summary_zh": ag_summary_zh,
-            },
-            "mcp": {
-                "items": mcp_items,
-                "summary": mcp_summary,
-                "error": mcp_raw.get("Error") if isinstance(mcp_raw, dict) else None,
-                "summary_zh": mcp_summary_zh,
-            },
-            "attention": attention,
-            "raw_sanitized": raw_sanitized,
-            "error": None if res.exit_code == 0 else self.sanitizer.sanitize_str(res.error or f"status exited with {res.exit_code}"),
-        }
+        result = parse_sync_status_payload(res, self.sanitizer)
         with self._lock:
             self._sync_status_cache = result
         return result
@@ -1323,66 +323,7 @@ class DashboardApp:
             if not refresh and self._github_cache is not None:
                 return self._github_cache
 
-        gh_exe = shutil.which("gh")
-        if not gh_exe:
-            offline_res = {
-                "available": False,
-                "offline": True,
-                "message_zh": "当前离线或无法连接 GitHub（不影响本地监控）",
-                "open_prs": [],
-                "ci_runs": [],
-            }
-            with self._lock:
-                self._github_cache = offline_res
-            return offline_res
-
-        pr_res = self.runner(
-            [gh_exe, "pr", "list", "--state", "open", "--limit", "10", "--json", "number,title,headRefName,url,updatedAt"],
-            cwd=self.repo_root,
-            timeout=8.0,
-        )
-        run_res = self.runner(
-            [gh_exe, "run", "list", "--limit", "8", "--json", "databaseId,workflowName,status,conclusion,headBranch,displayTitle,url,createdAt"],
-            cwd=self.repo_root,
-            timeout=8.0,
-        )
-
-        if pr_res.exit_code != 0 or run_res.exit_code != 0:
-            offline_res = {
-                "available": False,
-                "offline": True,
-                "message_zh": "当前离线或无法连接 GitHub（不影响本地监控）",
-                "open_prs": [],
-                "ci_runs": [],
-            }
-            with self._lock:
-                self._github_cache = offline_res
-            return offline_res
-
-        try:
-            prs = json.loads(pr_res.stdout or "[]")
-            runs = json.loads(run_res.stdout or "[]")
-            if not isinstance(prs, list) or not isinstance(runs, list):
-                raise ValueError("unexpected GitHub JSON shape")
-        except (ValueError, json.JSONDecodeError):
-            offline_res = {
-                "available": False,
-                "offline": True,
-                "message_zh": "当前离线或无法连接 GitHub（不影响本地监控）",
-                "open_prs": [],
-                "ci_runs": [],
-            }
-            with self._lock:
-                self._github_cache = offline_res
-            return offline_res
-
-        result = {
-            "available": True,
-            "offline": False,
-            "message_zh": "已连接 GitHub",
-            "open_prs": self.sanitizer.sanitize_value(prs),
-            "ci_runs": self.sanitizer.sanitize_value(runs),
-        }
+        result = collect_github_status(self.repo_root, self.sanitizer, self.runner)
         with self._lock:
             self._github_cache = result
         return result
@@ -1402,383 +343,17 @@ class DashboardApp:
             key = _norm_path_key(abs_manifest)
             if not any(_norm_path_key(p) == key for p in self._watched_manifests):
                 self._watched_manifests.append(abs_manifest)
-        return self._probe_board_manifest(abs_manifest)
-
-    def _build_action_command(self, action: str, suite: str | None) -> tuple[str, list[str], float]:
-        if action not in ALLOWED_ACTIONS:
-            raise ValueError(f"unsupported action: {action}")
-        pwsh = shutil.which("pwsh") or "pwsh"
-        scripts_dir = self.repo_root / "scripts"
-        repo_str = os.fspath(self.repo_root)
-
-        if action == "doctor":
-            argv = [pwsh, "-NoProfile", "-File", os.fspath(scripts_dir / "doctor.ps1"), "-RepoRoot", repo_str]
-            if self.home_root is not None:
-                argv.extend(["-HomeRoot", os.fspath(self.home_root)])
-            return "运行健康体检 (doctor)", argv, 120.0
-        if action == "scan":
-            return (
-                "秘密扫描 (scan-secrets)",
-                [pwsh, "-NoProfile", "-File", os.fspath(scripts_dir / "scan-secrets.ps1"), "-RepoRoot", repo_str],
-                120.0,
-            )
-        if action == "build-skills":
-            return (
-                "构建技能目录 (build-skills)",
-                [pwsh, "-NoProfile", "-File", os.fspath(scripts_dir / "build-skills.ps1"), "-RepoRoot", repo_str],
-                120.0,
-            )
-        if action == "antigravity-build":
-            return (
-                "打包 Antigravity 插件",
-                [pwsh, "-NoProfile", "-File", os.fspath(scripts_dir / "agent-dotfiles.ps1"), "antigravity", "build", "-RepoRoot", repo_str],
-                120.0,
-            )
-        if action == "test-suite":
-            if not isinstance(suite, str) or not suite.strip():
-                raise ValueError("suite is required for test-suite")
-            suite_clean = suite.strip()
-            if "/" in suite_clean or "\\" in suite_clean:
-                raise ValueError("invalid suite filename")
-            tests_dir = self.repo_root / "tests"
-            valid_suites = {p.name for p in tests_dir.glob("*.tests.ps1") if p.is_file()}
-            if suite_clean not in valid_suites:
-                raise ValueError(f"unknown test suite: {suite_clean}")
-            return (
-                f"运行单套测试 ({suite_clean})",
-                [pwsh, "-NoProfile", "-File", os.fspath(scripts_dir / "run-tests.ps1"), "-RepoRoot", repo_str, "-Suite", suite_clean],
-                300.0,
-            )
-        return (
-            "运行全量测试 (run-tests)",
-            [pwsh, "-NoProfile", "-File", os.fspath(scripts_dir / "run-tests.ps1"), "-RepoRoot", repo_str],
-            1800.0,
-        )
+        return probe_board_manifest(abs_manifest, self.sanitizer)
 
     def _build_sync_command(self, target: str, environment: str, *, apply_mode: bool) -> tuple[str, list[str]]:
-        if target not in ALLOWED_SYNC_TARGETS:
-            raise ValueError(f"unsupported sync target: {target}")
-        if environment not in ALLOWED_ENVIRONMENTS:
-            raise ValueError(f"unsupported environment: {environment}")
-        pwsh = shutil.which("pwsh") or "pwsh"
-        scripts_dir = self.repo_root / "scripts"
-        repo_str = os.fspath(self.repo_root)
-        mode_flag = "-Apply" if apply_mode else "-DryRun"
-        mode_zh = "写入" if apply_mode else "预览"
-
-        if target == "codex-env":
-            argv = [
-                pwsh, "-NoProfile", "-File", os.fspath(scripts_dir / "agent-dotfiles.ps1"),
-                "env", "deploy", environment, mode_flag, "-RepoRoot", repo_str,
-            ]
-            if self.home_root is not None:
-                argv.extend(["-HomeRoot", os.fspath(self.home_root)])
-                argv.extend(["-BackupRoot", os.fspath(self.home_root / ".ai-agent-dotfiles-backups")])
-            if self.state_root is not None:
-                argv.extend(["-StateRoot", os.fspath(self.state_root)])
-            return f"{mode_zh} Codex 完整同步 ({environment})", argv
-
-        if target == "codex-skills":
-            argv = [
-                pwsh, "-NoProfile", "-File", os.fspath(scripts_dir / "deploy-skills.ps1"),
-                "-Environment", environment, "-RepoRoot", repo_str,
-            ]
-            if apply_mode:
-                argv.append("-Apply")
-            if self.home_root is not None:
-                argv.extend(["-HomeRoot", os.fspath(self.home_root)])
-            if self.state_root is not None:
-                argv.extend(["-StateRoot", os.fspath(self.state_root)])
-            return f"{mode_zh} Codex 技能同步 ({environment})", argv
-
-        if target == "antigravity-config":
-            argv = [
-                pwsh, "-NoProfile", "-File", os.fspath(scripts_dir / "agent-dotfiles.ps1"),
-                "config", "pull", "-Platform", "Antigravity", mode_flag, "-RepoRoot", repo_str,
-            ]
-            if self.home_root is not None:
-                argv.extend(["-HomeRoot", os.fspath(self.home_root)])
-                argv.extend(["-BackupRoot", os.fspath(self.home_root / ".ai-agent-dotfiles-backups")])
-            return f"{mode_zh} Antigravity 全局规则同步", argv
-
-        if target == "antigravity-plugin":
-            argv = [
-                pwsh, "-NoProfile", "-File", os.fspath(scripts_dir / "agent-dotfiles.ps1"),
-                "antigravity", "deploy", mode_flag, "-RepoRoot", repo_str,
-            ]
-            return f"{mode_zh} Antigravity 自有插件部署", argv
-
-        # target == "mcp"
-        argv = [
-            pwsh, "-NoProfile", "-File", os.fspath(scripts_dir / "agent-dotfiles.ps1"),
-            "mcp", "deploy", mode_flag, "-RepoRoot", repo_str,
-        ]
-        if self.home_root is not None:
-            argv.extend(["-HomeRoot", os.fspath(self.home_root)])
-            argv.extend(["-BackupRoot", os.fspath(self.home_root / ".ai-agent-dotfiles-backups")])
-        return f"{mode_zh}受管 MCP 服务同步", argv
-
-    def _parse_doctor_structured(self, output_sanitized: str) -> dict[str, Any]:
-        checks: list[dict[str, str]] = []
-        blockers: list[str] = []
-        in_blockers = False
-        for raw_line in output_sanitized.splitlines():
-            line = raw_line.strip()
-            m = re.match(r"^\[(PASS|WARN|FAIL|INFO)\]\s*(.+)$", line)
-            if m:
-                in_blockers = False
-                checks.append({"level": m.group(1), "message": m.group(2).strip()})
-                continue
-            bm = re.match(r"^Deploy blockers:\s*(\d+)\b", line)
-            if bm and int(bm.group(1)) > 0:
-                in_blockers = True
-                continue
-            if line.startswith("Deploy blockers: none"):
-                in_blockers = False
-                continue
-            if line.startswith("Doctor result:") or line.startswith("==="):
-                in_blockers = False
-                continue
-            if in_blockers and line:
-                blockers.append(line)
-        return {"checks": checks, "blockers": blockers}
-
-    def _parse_preview_output(
-        self,
-        target: str,
-        environment: str,
-        res: RunResult,
-        output_sanitized: str,
-        repo_head_sha: str,
-        workspace_fingerprint: str = "",
-    ) -> tuple[dict[str, Any], PreviewRecord]:
-        items: list[dict[str, str]] = []
-        has_prune = False
-        has_blocked = False
-        has_changes = False
-        unrecorded_updates: list[str] = []
-        has_interrupted_remnants = False
-
-        lowered = output_sanitized.lower()
-        if "build-with-current-agy-before-apply" in lowered or "preflight failed" in lowered:
-            has_blocked = True
-        if re.search(r"Deploy blockers:\s*[1-9]\d*", output_sanitized):
-            has_blocked = True
-
-        if target == "antigravity-plugin":
-            parsed = _extract_json_payload(res.stdout)
-            if isinstance(parsed, dict):
-                s_parsed = self.sanitizer.sanitize_value(parsed)
-                action = str(s_parsed.get("Action") or "blocked")
-                reason = str(s_parsed.get("Reason") or "")
-                req = str(s_parsed.get("ApplyRequirement") or "")
-                name = str(s_parsed.get("Name") or "ai-agent-dotfiles")
-                version = str(s_parsed.get("Version") or "").strip()
-                if action == "blocked" or req == "build-with-current-agy-before-apply":
-                    has_blocked = True
-                if action in ("install", "update"):
-                    has_changes = True
-
-                detail_parts: list[str] = []
-                if version:
-                    detail_parts.append(f"v{version}")
-                if reason:
-                    detail_parts.append(reason)
-                if req and req != "none":
-                    detail_parts.append(f"({req})")
-                changes = s_parsed.get("Changes")
-                if isinstance(changes, dict):
-                    added = len(changes.get("Added") or []) if isinstance(changes.get("Added"), list) else 0
-                    changed = len(changes.get("Changed") or []) if isinstance(changes.get("Changed"), list) else 0
-                    removed = len(changes.get("Removed") or []) if isinstance(changes.get("Removed"), list) else 0
-                    change_parts: list[str] = []
-                    if added:
-                        change_parts.append(f"新增 {added}")
-                    if changed:
-                        change_parts.append(f"修改 {changed}")
-                    if removed:
-                        change_parts.append(f"移除 {removed}")
-                    if change_parts:
-                        detail_parts.append("文件变更：" + " / ".join(change_parts))
-
-                items.append({
-                    "action": action,
-                    "action_zh": ACTION_ZH_MAP.get(action, action),
-                    "name": name,
-                    "detail": " · ".join(detail_parts),
-                })
-
-                externals = s_parsed.get("ExternalExpectations")
-                if isinstance(externals, list):
-                    for ext in externals:
-                        if not isinstance(ext, dict):
-                            continue
-                        ext_name = str(ext.get("Name") or "unknown")
-                        ext_state = str(ext.get("State") or "")
-                        ext_act = str(ext.get("Action") or ext_state or "unknown")
-                        ext_reason = str(ext.get("Reason") or "")
-                        ext_detail_parts = []
-                        if ext_state:
-                            ext_detail_parts.append(f"状态 {ext_state}")
-                        if ext_reason:
-                            ext_detail_parts.append(ext_reason)
-                        items.append({
-                            "action": ext_act,
-                            "action_zh": f"只读（{ACTION_ZH_MAP.get(ext_act, ext_act)}）",
-                            "name": f"外部插件/{ext_name}",
-                            "detail": " · ".join(ext_detail_parts),
-                        })
-            else:
-                has_blocked = True
-        else:
-            skill_file_changes: dict[str, list[tuple[str, str]]] = {}
-            current_skill_name: str | None = None
-            for line in output_sanitized.splitlines():
-                stripped = line.strip()
-
-                fhm = re.match(r"^File changes for (Codex/\S+):$", stripped)
-                if fhm:
-                    current_skill_name = fhm.group(1)
-                    skill_file_changes.setdefault(current_skill_name, [])
-                    continue
-
-                if current_skill_name is not None:
-                    fcm = re.match(r"^\s{2}(add|change|remove)\s+(\S.*)$", line)
-                    if fcm:
-                        skill_file_changes[current_skill_name].append((fcm.group(1), fcm.group(2).strip()))
-                        continue
-                    current_skill_name = None
-
-                if stripped.startswith("Update not recorded in deploy state:"):
-                    unrecorded_updates.append(stripped)
-                    continue
-                if "Possible interrupted deployment remnants" in stripped:
-                    has_interrupted_remnants = True
-                    continue
-
-                # deploy-skills table line: Codex install skill-name
-                sm = re.match(r"^(Codex)\s+(install|update|unchanged|prune|unknown)\s+(\S+)$", stripped)
-                if sm:
-                    act, name = sm.group(2), sm.group(3)
-                    if act in ("install", "update", "prune"):
-                        has_changes = True
-                    if act == "prune":
-                        has_prune = True
-                    items.append({
-                        "action": act,
-                        "action_zh": ACTION_ZH_MAP.get(act, act),
-                        "name": f"{sm.group(1)}/{name}",
-                        "detail": "技能目录变更" if act != "unchanged" else "内容一致",
-                    })
-                    continue
-
-                # config-pull line:   add     Codex/AGENTS.md
-                cm = re.match(r"^\s{2}(add|update)\s+(\S.*)$", line)
-                if cm and not stripped.startswith("["):
-                    act, name = cm.group(1), cm.group(2).strip()
-                    if name.startswith("Codex/") or name.startswith("Antigravity/"):
-                        has_changes = True
-                        items.append({
-                            "action": act,
-                            "action_zh": ACTION_ZH_MAP.get(act, act),
-                            "name": name,
-                            "detail": "受管配置更新（保留块外个人内容）" if "AGENTS.md" in name else "配置文件复制",
-                        })
-                    continue
-
-                # mcp-sync line:   [Codex      ] blender          add       (missing-in-codex)  unmanaged-preserved=1
-                mm = re.match(r"^\s*\[([^\]]+)\]\s+(\S+)\s+(add|update|unchanged|blocked)\s+\(([^)]*)\)", line)
-                if mm:
-                    plat, srv, act, reason = mm.group(1).strip(), mm.group(2).strip(), mm.group(3), mm.group(4)
-                    if act in ("add", "update"):
-                        has_changes = True
-                    if act == "blocked":
-                        has_blocked = True
-                    items.append({
-                        "action": act,
-                        "action_zh": ACTION_ZH_MAP.get(act, act),
-                        "name": f"{plat}/{srv}",
-                        "detail": reason,
-                    })
-                    continue
-
-                if re.search(r"\bblocked=[1-9]\d*\b", line) or re.search(r"\bAction\s*[:=]\s*blocked\b", line, re.IGNORECASE):
-                    has_blocked = True
-                if re.search(r"\bprune=[1-9]\d*\b", line):
-                    has_prune = True
-                    has_changes = True
-                if re.search(r"\b(install|add|update)=[1-9]\d*\b", line):
-                    has_changes = True
-
-            for item in items:
-                changes = skill_file_changes.get(item["name"])
-                if changes:
-                    total = len(changes)
-                    preview_parts = [f"{act} {rel}" for act, rel in changes[:4]]
-                    detail = f"变更 {total} 项：" + ", ".join(preview_parts)
-                    if total > 4:
-                        detail += f" 等共 {total} 项"
-                    item["detail"] = detail
-
-        no_changes = (res.exit_code == 0) and (not has_blocked) and (not has_changes)
-        can_apply = (res.exit_code == 0) and (not has_blocked) and has_changes
-
-        if res.exit_code != 0:
-            summary_zh = f"预览命令执行失败（退出码 {res.exit_code}），禁止写入"
-        elif has_blocked:
-            summary_zh = "存在受阻项或未满足前置构建门禁，禁止写入"
-        elif no_changes:
-            summary_zh = "当前所有项目均已同步，无需执行写入"
-        else:
-            change_cnt = sum(1 for it in items if it["action"] in ("install", "add", "update", "prune"))
-            summary_zh = f"预览通过，共 {change_cnt or 1} 项待写入变更，核对后可执行"
-
-        risk_map = {
-            "codex-env": "写入范围：~/.codex/skills（逐目录原子替换，保留 .system 与未托管目录）及 ~/.codex 下受管配置（覆盖前自动备份）。",
-            "codex-skills": "写入范围：仅写入选中的 Codex 技能目录；旧版本自动备份到部署状态目录，绝不触碰 .system 或未托管目录。",
-            "antigravity-config": "写入范围：仅更新 ~/.gemini/config/AGENTS.md 中的受管标记块，块外个人规则完整保留，覆盖前自动备份。",
-            "antigravity-plugin": "写入范围：通过官方 agy plugin 命令安装或升级自有插件 ai-agent-dotfiles，升级前自动备份，其他插件保持不变。",
-            "mcp": "写入范围：仅投影 servers.psd1 声明的受管服务条目（Antigravity 按条目合并 JSON，Codex 调用 codex mcp），保留全部未托管服务并自动备份。",
-        }
-        risk_notice_zh = risk_map[target]
-        if has_prune:
-            risk_notice_zh += " 注意：本次计划包含清理移除（prune）此前由本工具部署但当前环境未选中的旧技能。"
-        if unrecorded_updates:
-            risk_notice_zh += " 注意：部分待更新目录未记录在部署状态中（覆盖前将自动备份，但原有归属未知）。"
-        if has_interrupted_remnants:
-            risk_notice_zh += " 警告：检测到可能存在上次中断部署的残留目录（.deploying-*），建议在执行写入前先核查。"
-
-        now_ts = time.time()
-        preview_id = str(uuid.uuid4())
-        record = PreviewRecord(
-            preview_id=preview_id,
-            target=target,
-            environment=environment,
-            repo_head_sha=repo_head_sha,
-            created_at=now_ts,
-            expires_at=now_ts + 300.0,
-            can_apply=can_apply,
-            has_prune=has_prune,
-            no_changes=no_changes,
-            workspace_fingerprint=workspace_fingerprint,
-            consumed=False,
+        return build_sync_command(
+            self.repo_root,
+            self.home_root,
+            self.state_root,
+            target,
+            environment,
+            apply_mode=apply_mode,
         )
-        preview_payload = {
-            "preview_id": preview_id,
-            "target": target,
-            "environment": environment,
-            "blocked": has_blocked,
-            "can_apply": can_apply,
-            "has_prune": has_prune,
-            "no_changes": no_changes,
-            "summary_zh": summary_zh,
-            "items": items,
-            "risk_notice_zh": risk_notice_zh,
-            "expires_in_sec": 300,
-            "repo_head_sha": repo_head_sha,
-            "workspace_fingerprint": workspace_fingerprint[:12],
-        }
-        return preview_payload, record
 
     def _register_job_locked(self, kind: str, label_zh: str) -> JobRecord:
         if self._active_job_id is not None:
@@ -1807,24 +382,45 @@ class DashboardApp:
         timeout: float,
         on_complete: Callable[[JobRecord, RunResult, str], None] | None = None,
     ) -> None:
+        use_streaming = (not self._has_custom_runner) and (self.runner is default_command_runner)
+
+        def _on_line(chunk: str) -> None:
+            sanitized_chunk = self.sanitizer.sanitize_str(chunk)
+            with self._lock:
+                if job.cancel_requested:
+                    return
+                job.output_sanitized += sanitized_chunk
+
+        def _on_proc_start(proc: Any) -> None:
+            should_kill = False
+            with self._lock:
+                if job.cancel_requested:
+                    should_kill = True
+                else:
+                    job._proc = proc
+            if should_kill:
+                kill_process_tree(proc)
+
+        def _is_cancelled() -> bool:
+            with self._lock:
+                return job.cancel_requested
+
         def _worker() -> None:
-            res = self.runner(argv, cwd=self.repo_root, timeout=timeout)
+            if use_streaming:
+                res = run_streaming_subprocess(
+                    argv,
+                    cwd=self.repo_root,
+                    timeout=timeout,
+                    on_line=_on_line,
+                    on_process_start=_on_proc_start,
+                    is_cancelled=_is_cancelled,
+                )
+            else:
+                res = self.runner(argv, cwd=self.repo_root, timeout=timeout)
             combined = "\n".join(part for part in (res.stdout, res.stderr, res.error or "") if part)
             output_sanitized = self.sanitizer.sanitize_str(combined)
             with self._lock:
-                job.finished_at = utc_now_iso()
-                job.duration_sec = round(max(0.0, time.monotonic() - job.started_monotonic), 3)
-                job.exit_code = res.exit_code
-                job.output_sanitized = output_sanitized
-                job.status = "succeeded" if res.exit_code == 0 else "failed"
-                job.summary_zh = f"{label_zh} 完成" if res.exit_code == 0 else f"{label_zh} 失败（退出码 {res.exit_code}）"
-                if on_complete is not None:
-                    on_complete(job, res, output_sanitized)
-                if job.status == "failed" and not job.ai_prompt:
-                    tail = "\n".join(output_sanitized.splitlines()[-30:])
-                    job.ai_prompt = self.sanitizer.sanitize_str(
-                        f"本地任务「{label_zh}」执行失败（退出码 {res.exit_code}），请帮我排查以下脱敏输出：\n\n{tail}"
-                    )
+                finalize_job_locked(job, label_zh, res, output_sanitized, self.sanitizer, on_complete)
                 if self._active_job_id == job.id:
                     self._active_job_id = None
 
@@ -1845,12 +441,38 @@ class DashboardApp:
         self._start_job_thread(job, label_zh, argv, timeout, on_complete)
         return job.to_summary()
 
+    def cancel_job(self, job_id: str) -> tuple[int, dict[str, Any]]:
+        """Safely cancel a running read-only/preview/test job; refuse apply:* jobs with HTTP 403."""
+        proc_to_kill = None
+        with self._lock:
+            job = self._jobs.get(job_id)
+            if job is None:
+                return 404, {"ok": False, "error": "job not found"}
+            if job.kind.startswith("apply:"):
+                return 403, {"ok": False, "error": "写入类任务禁止中途取消，以防本机状态半写"}
+            if job.status != "running":
+                return 409, {"ok": False, "error": "任务已结束，无法取消"}
+            job.cancel_requested = True
+            job.status = "cancelled"
+            job.finished_at = utc_now_iso()
+            job.duration_sec = round(max(0.0, time.monotonic() - job.started_monotonic), 3)
+            job.summary_zh = f"{job.label_zh} 已手动中止"
+            proc_to_kill = job._proc
+            job._proc = None
+            if self._active_job_id == job.id:
+                self._active_job_id = None
+            detail = job.to_detail()
+
+        if proc_to_kill is not None:
+            kill_process_tree(proc_to_kill)
+        return 200, {"ok": True, "job": detail}
+
     def start_action_job(self, action: str, suite: str | None = None) -> dict[str, Any]:
-        label_zh, argv, timeout = self._build_action_command(action, suite)
+        label_zh, argv, timeout = build_action_command(self.repo_root, self.home_root, action, suite)
 
         def _after(job: JobRecord, _res: RunResult, output_sanitized: str) -> None:
             if action == "doctor":
-                structured = self._parse_doctor_structured(output_sanitized)
+                structured = parse_doctor_structured(output_sanitized)
                 job.structured = structured
                 if structured["blockers"]:
                     job.summary_zh = f"健康体检发现 {len(structured['blockers'])} 个部署阻塞项"
@@ -1865,12 +487,13 @@ class DashboardApp:
         def _after(job: JobRecord, res: RunResult, output_sanitized: str) -> None:
             post_head = self._get_git_head_sha()
             post_fp = self._compute_managed_workspace_fingerprint()
-            preview_payload, record = self._parse_preview_output(
+            preview_payload, record = parse_preview_output(
                 target,
                 environment,
                 res,
                 output_sanitized,
                 post_head or head_sha,
+                self.sanitizer,
                 post_fp,
             )
             if post_head != head_sha or post_fp != pre_fp:
@@ -2058,6 +681,19 @@ class DashboardRequestHandler(BaseHTTPRequestHandler):
             self._send_bytes(200, "text/html; charset=utf-8", html_bytes)
             return
 
+        if path in STATIC_ASSET_ALLOWLIST:
+            rel_name, content_type = STATIC_ASSET_ALLOWLIST[path]
+            asset_bytes = self.app.read_static_asset(rel_name)
+            if asset_bytes is None:
+                self._send_json(404, {"ok": False, "error": "static asset unavailable"})
+                return
+            self._send_bytes(200, content_type, asset_bytes)
+            return
+
+        if path.startswith("/static/"):
+            self._send_json(404, {"ok": False, "error": "not found"})
+            return
+
         if path == "/api/health":
             self._send_json(200, self.app.get_health())
             return
@@ -2174,6 +810,12 @@ class DashboardRequestHandler(BaseHTTPRequestHandler):
             preview_id = body.get("preview_id")
             confirm = body.get("confirm")
             status, payload = self.app.start_sync_apply_job(preview_id, confirm)
+            self._send_json(status, payload)
+            return
+
+        cancel_m = re.fullmatch(r"/api/jobs/([^/]+)/cancel", path)
+        if cancel_m:
+            status, payload = self.app.cancel_job(cancel_m.group(1))
             self._send_json(status, payload)
             return
 
@@ -2398,6 +1040,39 @@ def main(argv: list[str] | None = None) -> int:
         server.server_close()
         cleanup_server_json(info_path, os.getpid())
     return 0
+
+
+__all__ = [
+    "ACTION_ZH_MAP",
+    "ALLOWED_ACTIONS",
+    "ALLOWED_ENVIRONMENTS",
+    "ALLOWED_SYNC_TARGETS",
+    "CATEGORY_DEFS",
+    "DashboardApp",
+    "DashboardHTTPServer",
+    "DashboardRequestHandler",
+    "JobRecord",
+    "LOOPBACK_URL_RE",
+    "POSIX_HOME_RE",
+    "PathSanitizer",
+    "PreviewRecord",
+    "RunResult",
+    "SKILL_NAME_RE",
+    "STATIC_ASSET_ALLOWLIST",
+    "STATUS_CODE_ZH",
+    "WINDOWS_USERS_RE",
+    "_norm_path_key",
+    "assert_plain_path_no_reparse",
+    "cleanup_server_json",
+    "is_reparse_or_symlink",
+    "main",
+    "parse_args",
+    "resolve_repo_relative_file",
+    "server_json_path",
+    "shutil",
+    "webbrowser",
+    "write_server_json",
+]
 
 
 if __name__ == "__main__":

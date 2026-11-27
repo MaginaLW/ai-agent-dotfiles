@@ -1075,16 +1075,29 @@ class DashboardServerTests(unittest.TestCase):
 
     def test_frontend_backend_contract(self) -> None:
         index_path = REPO_ROOT / "dashboard" / "index.html"
+        app_js_path = REPO_ROOT / "dashboard" / "static" / "app.js"
+        app_css_path = REPO_ROOT / "dashboard" / "static" / "app.css"
         server_path = REPO_ROOT / "dashboard" / "server.py"
-        html_text = index_path.read_text(encoding="utf-8")
-        server_text = server_path.read_text(encoding="utf-8")
+        lib_dir = REPO_ROOT / "dashboard" / "lib"
 
-        self.assertNotIn(".innerHTML", html_text)
-        self.assertNotIn(".outerHTML", html_text)
+        html_text = index_path.read_text(encoding="utf-8")
+        js_text = app_js_path.read_text(encoding="utf-8")
+        css_text = app_css_path.read_text(encoding="utf-8")
+        server_text = server_path.read_text(encoding="utf-8")
+        lib_files = sorted(lib_dir.glob("*.py"))
+        self.assertTrue(lib_files)
+
+        for label, text in (("index.html", html_text), ("app.js", js_text)):
+            self.assertNotIn(".innerHTML", text, f"{label} must not use .innerHTML")
+            self.assertNotIn(".outerHTML", text, f"{label} must not use .outerHTML")
+
         self.assertRegex(
             html_text,
             r'<meta\s+name="dashboard-token"\s+content="__DASHBOARD_TOKEN__"\s*>',
         )
+        self.assertIn('<link rel="stylesheet" href="/static/app.css">', html_text)
+        self.assertIn('<script src="/static/app.js" defer></script>', html_text)
+        self.assertIn("并发运行全部套件", html_text)
 
         html_actions = set(re.findall(r'data-action="([^"]+)"', html_text))
         self.assertTrue(html_actions)
@@ -1094,12 +1107,351 @@ class DashboardServerTests(unittest.TestCase):
         self.assertTrue(html_targets)
         self.assertTrue(html_targets.issubset(srv.ALLOWED_SYNC_TARGETS))
 
-        self.assertIn("openJobLogs", html_text)
-        self.assertNotIn("preview.can_apply === false && job.exit_code === 0", html_text)
+        self.assertIn("openJobLogs", js_text)
+        self.assertIn("/cancel", js_text)
+        self.assertIn("visibilityState", js_text)
+        self.assertIn("shouldRenderSection", js_text)
+        self.assertIn("sync.skills", js_text)
+        self.assertNotIn("preview.can_apply === false && job.exit_code === 0", js_text)
 
         retired_pattern = re.compile(r"\b(claude|openclaw|opencode|reasonix|zcode)\b", re.IGNORECASE)
-        self.assertIsNone(retired_pattern.search(html_text))
-        self.assertIsNone(retired_pattern.search(server_text))
+        scan_targets: list[tuple[str, str]] = [
+            ("index.html", html_text),
+            ("app.js", js_text),
+            ("app.css", css_text),
+            ("server.py", server_text),
+        ]
+        for lf in lib_files:
+            scan_targets.append((lf.name, lf.read_text(encoding="utf-8")))
+        for name, content in scan_targets:
+            self.assertIsNone(retired_pattern.search(content), f"retired platform found in {name}")
+
+    def test_static_assets_allowlist_and_traversal_rejection(self) -> None:
+        static_dir = self.repo / "dashboard" / "static"
+        static_dir.mkdir(parents=True, exist_ok=True)
+        (static_dir / "app.css").write_text(":root { color-scheme: light; }\n", encoding="utf-8")
+        (static_dir / "app.js").write_text('"use strict";\nconst csrfToken = "";\n', encoding="utf-8")
+        (static_dir / "secret.txt").write_text("nope\n", encoding="utf-8")
+
+        with self._running_server() as (_server, _app, port):
+            st_css, hdr_css, body_css = self._request(port, "GET", "/static/app.css")
+            self.assertEqual(st_css, 200)
+            self.assertIn("text/css", hdr_css.get("content-type", ""))
+            self.assertEqual(hdr_css.get("x-content-type-options"), "nosniff")
+            self.assertEqual(hdr_css.get("cache-control"), "no-store")
+            self.assertIn(b":root", body_css)
+
+            st_js, hdr_js, body_js = self._request(port, "GET", "/static/app.js")
+            self.assertEqual(st_js, 200)
+            self.assertIn("javascript", hdr_js.get("content-type", ""))
+            self.assertEqual(hdr_js.get("x-content-type-options"), "nosniff")
+            self.assertEqual(hdr_js.get("cache-control"), "no-store")
+            self.assertIn(b"csrfToken", body_js)
+
+            for bad in ("/static/../server.py", "/static/secret.txt", "/static/missing.js", "/static/"):
+                st_bad, _, _ = self._request(port, "GET", bad)
+                self.assertEqual(st_bad, 404, f"expected 404 for {bad}")
+
+    def test_streaming_job_output_and_safe_cancel(self) -> None:
+        app = srv.DashboardApp(
+            self.repo,
+            home_root=self.home_root,
+            state_root=self.state_root,
+            offline=True,
+            command_runner=None,
+        )
+        server = srv.DashboardHTTPServer(("127.0.0.1", 0), app)
+        t = threading.Thread(target=server.serve_forever, kwargs={"poll_interval": 0.05}, daemon=True)
+        t.start()
+        try:
+            port = int(server.server_address[1])
+            hdrs = {"X-Dashboard-Token": app.token}
+
+            # 1. Streaming output arrives incrementally while job is still running
+            stream_code = (
+                "import sys, time; "
+                f"print('STEP1 path=' + {FAKE_USER_PATH!r}, flush=True); "
+                "time.sleep(0.35); "
+                "print('STEP2 done', flush=True)"
+            )
+            summary = app._spawn_job(
+                "action:doctor",
+                "流式输出测试",
+                [sys.executable, "-u", "-c", stream_code],
+                10.0,
+            )
+            jid = summary["id"]
+            saw_running_chunk = False
+            deadline = time.monotonic() + 3.0
+            while time.monotonic() < deadline:
+                st, _, raw = self._request(port, "GET", f"/api/jobs/{jid}")
+                self.assertEqual(st, 200)
+                detail = json.loads(raw.decode("utf-8"))["job"]
+                if detail["status"] == "running" and "STEP1" in detail["output_sanitized"]:
+                    saw_running_chunk = True
+                    self.assertNotIn(FAKE_USER_DIR, detail["output_sanitized"])
+                    self.assertIn("~\\.codex\\AGENTS.md", detail["output_sanitized"])
+                    break
+                if detail["status"] != "running":
+                    break
+                time.sleep(0.03)
+            self.assertTrue(saw_running_chunk, "expected incremental output while job status == running")
+            finished = self._wait_job(port, jid)
+            self.assertEqual(finished["status"], "succeeded")
+            self.assertIn("STEP2 done", finished["output_sanitized"])
+
+            # 2. Safe cancel kills long-running non-apply subprocesses (action:* and preview:*) and releases active lock
+            sleep_summary = app._spawn_job(
+                "action:test-all",
+                "长时间测试",
+                [sys.executable, "-u", "-c", "import time; print('STARTED', flush=True); time.sleep(30)"],
+                30.0,
+            )
+            sleep_id = sleep_summary["id"]
+            time.sleep(0.15)
+            st_c, _, raw_c = self._request(port, "POST", f"/api/jobs/{sleep_id}/cancel", headers=hdrs, body={})
+            self.assertEqual(st_c, 200)
+            cancelled = json.loads(raw_c.decode("utf-8"))["job"]
+            self.assertEqual(cancelled["status"], "cancelled")
+            self.assertIn("已手动中止", cancelled["summary_zh"])
+            self.assertIsNone(app._active_job_id)
+
+            prev_summary = app._spawn_job(
+                "preview:codex-skills",
+                "预览 Codex 技能同步 (work)",
+                [sys.executable, "-u", "-c", "import time; print('PREVIEWING', flush=True); time.sleep(30)"],
+                30.0,
+            )
+            prev_id = prev_summary["id"]
+            time.sleep(0.15)
+            st_pc, _, raw_pc = self._request(port, "POST", f"/api/jobs/{prev_id}/cancel", headers=hdrs, body={})
+            self.assertEqual(st_pc, 200)
+            self.assertEqual(json.loads(raw_pc.decode("utf-8"))["job"]["status"], "cancelled")
+            self.assertIsNone(app._active_job_id)
+
+            # Cancel already finished job -> 409; missing job -> 404; missing token -> 403
+            self.assertEqual(self._request(port, "POST", f"/api/jobs/{sleep_id}/cancel", headers=hdrs, body={})[0], 409)
+            self.assertEqual(self._request(port, "POST", "/api/jobs/nonexistent/cancel", headers=hdrs, body={})[0], 404)
+            self.assertEqual(self._request(port, "POST", f"/api/jobs/{sleep_id}/cancel", body={})[0], 403)
+
+            # 3. apply:* jobs MUST refuse cancel with HTTP 403
+            apply_summary = app._spawn_job(
+                "apply:codex-skills",
+                "写入技能",
+                [sys.executable, "-u", "-c", "import time; time.sleep(0.25); print('APPLIED', flush=True)"],
+                10.0,
+            )
+            apply_id = apply_summary["id"]
+            st_refuse, _, raw_refuse = self._request(port, "POST", f"/api/jobs/{apply_id}/cancel", headers=hdrs, body={})
+            self.assertEqual(st_refuse, 403)
+            self.assertIn("写入类任务禁止中途取消", json.loads(raw_refuse.decode("utf-8"))["error"])
+            apply_done = self._wait_job(port, apply_id)
+            self.assertEqual(apply_done["status"], "succeeded")
+        finally:
+            server.shutdown()
+            server.server_close()
+            t.join(timeout=2.0)
+
+    def test_skills_catalog_mtime_cache_hit_and_invalidation(self) -> None:
+        app = srv.DashboardApp(
+            self.repo,
+            home_root=self.home_root,
+            state_root=self.state_root,
+            offline=True,
+            command_runner=self._default_mock_runner,
+        )
+        cat1 = app._collect_skills_catalog()
+        self.assertEqual(app._skills_catalog_cache.misses, 1)
+        self.assertEqual(app._skills_catalog_cache.hits, 0)
+
+        cat2 = app._collect_skills_catalog()
+        self.assertEqual(app._skills_catalog_cache.misses, 1)
+        self.assertEqual(app._skills_catalog_cache.hits, 1)
+        self.assertEqual(cat1, cat2)
+
+        # Edit skill file and bump mtime_ns -> invalidates cache
+        skill_md = self.repo / "skills-source" / "shared" / "git-review" / "SKILL.md"
+        old_stat = skill_md.stat()
+        skill_md.write_text("---\nname: git-review\ndescription: Updated review.\n---\n", encoding="utf-8")
+        os.utime(skill_md, ns=(old_stat.st_atime_ns, old_stat.st_mtime_ns + 1_000_000_000))
+        cat3 = app._collect_skills_catalog()
+        self.assertEqual(app._skills_catalog_cache.misses, 2)
+        desc_map = {s["name"]: s["description"] for s in cat3["skills"]}
+        self.assertEqual(desc_map["git-review"], "Updated review.")
+
+        # Edit env psd1 -> invalidates cache
+        work_psd1 = self.repo / "harness-source" / "envs" / "work.psd1"
+        old_env_stat = work_psd1.stat()
+        work_psd1.write_text(
+            "@{\n  SchemaVersion = 1\n  Name = 'work'\n  Description = '更新环境'\n  Skills = @{ Codex = @('git-review') }\n}\n",
+            encoding="utf-8",
+        )
+        os.utime(work_psd1, ns=(old_env_stat.st_atime_ns, old_env_stat.st_mtime_ns + 1_000_000_000))
+        cat4 = app._collect_skills_catalog()
+        self.assertEqual(app._skills_catalog_cache.misses, 3)
+        swarm_entry = next(s for s in cat4["skills"] if s["name"] == "swarm")
+        self.assertNotIn("work", swarm_entry["in_envs"])
+
+        # Edit plugins.psd1 -> invalidates cache
+        plugins_psd1 = self.repo / "harness-source" / "antigravity" / "plugins.psd1"
+        old_pl_stat = plugins_psd1.stat()
+        plugins_psd1.write_text(
+            "@{\n  SchemaVersion = 1\n  ManagedPlugin = @{\n    Name = 'ai-agent-dotfiles'\n    Skills = @()\n  }\n}\n",
+            encoding="utf-8",
+        )
+        os.utime(plugins_psd1, ns=(old_pl_stat.st_atime_ns, old_pl_stat.st_mtime_ns + 1_000_000_000))
+        cat5 = app._collect_skills_catalog()
+        self.assertEqual(app._skills_catalog_cache.misses, 4)
+        gr_entry = next(s for s in cat5["skills"] if s["name"] == "git-review")
+        self.assertFalse(gr_entry["in_antigravity_plugin"])
+
+    def test_structured_json_preview_parsing_and_sync_skills_surface(self) -> None:
+        sync_skills_payload = {
+            "State": "checked",
+            "Environment": "work",
+            "LiveRoot": "~/.codex/skills",
+            "Summary": {"install": 0, "update": 0, "unchanged": 10, "prune": 0, "unknown": 0},
+            "Error": None,
+        }
+
+        def _handler(argv: list[str], cwd: Path, timeout: float):
+            joined = " ".join(argv)
+            if "deploy-skills.ps1" in joined and "-Json" in argv:
+                payload = {
+                    "SchemaVersion": 1,
+                    "Mode": "dry-run",
+                    "Environment": "work",
+                    "PreviousEnvironment": "work",
+                    "LiveRoot": "~/.codex/skills",
+                    "Summary": {"install": 1, "update": 0, "unchanged": 9, "prune": 1, "unknown": 0},
+                    "Items": [
+                        {
+                            "Platform": "Codex",
+                            "Name": "git-review",
+                            "Action": "install",
+                            "Reason": None,
+                            "RecordedInState": True,
+                            "FileChanges": [{"Action": "add", "Path": "SKILL.md"}],
+                        },
+                        {
+                            "Platform": "Codex",
+                            "Name": "old-skill",
+                            "Action": "prune",
+                            "Reason": "not-selected",
+                            "RecordedInState": True,
+                            "FileChanges": [],
+                        },
+                    ],
+                    "UnrecordedUpdates": ["Codex/foo"],
+                    "InterruptedRemnants": [{"Platform": "Codex", "Name": ".deploying-x"}],
+                }
+                return srv.RunResult(0, json.dumps(payload), "")
+            if "config" in argv and "pull" in argv and "-Json" in argv:
+                payload = {
+                    "SchemaVersion": 1,
+                    "Mode": "dry-run",
+                    "Platforms": ["Antigravity"],
+                    "Summary": {"add": 0, "update": 1},
+                    "Items": [
+                        {
+                            "Rel": "Antigravity/AGENTS.md",
+                            "Action": "update",
+                            "Mode": "content",
+                            "ManagedBlockOnly": True,
+                        }
+                    ],
+                }
+                return srv.RunResult(0, json.dumps(payload), "")
+            if "mcp" in argv and "deploy" in argv and "-Json" in argv:
+                payload = {
+                    "Platforms": ["Codex", "Antigravity"],
+                    "Servers": ["blender"],
+                    "Items": [
+                        {
+                            "Platform": "Codex",
+                            "Server": "blender",
+                            "Action": "unchanged",
+                            "Reason": "managed-entry-match-local-disabled",
+                            "Changes": [],
+                        },
+                        {
+                            "Platform": "Antigravity",
+                            "Server": "blender",
+                            "Action": "update",
+                            "Reason": "config-differs",
+                            "Changes": ["~ args"],
+                        },
+                    ],
+                    "Summary": {"add": 0, "update": 1, "unchanged": 1, "blocked": 0},
+                }
+                return srv.RunResult(0, json.dumps(payload), "")
+            if "status" in argv and "-Json" in argv:
+                payload = {
+                    "SchemaVersion": 1,
+                    "Environment": {"Recorded": "work", "Available": ["work"], "Failed": False},
+                    "Skills": sync_skills_payload,
+                    "Config": [{"Platform": "Codex", "Item": "AGENTS.md", "Status": "in-sync", "Detail": "ok"}],
+                    "Antigravity": {"Name": "ai-agent-dotfiles", "Version": "0.5.0", "Action": "unchanged"},
+                    "Mcp": {"Items": [], "Summary": {"add": 0, "update": 0, "unchanged": 1, "blocked": 0}},
+                    "Summary": {"Environment": "work", "Skills": sync_skills_payload["Summary"], "Antigravity": "unchanged"},
+                }
+                return srv.RunResult(0, json.dumps(payload), "")
+            return None
+
+        self.custom_handlers.append(_handler)
+        with self._running_server() as (_server, app, port):
+            hdrs = {"X-Dashboard-Token": app.token}
+
+            # Verify -Json flag placement on _build_sync_command
+            self.assertIn("-Json", app._build_sync_command("codex-skills", "work", apply_mode=False)[1])
+            self.assertNotIn("-Json", app._build_sync_command("codex-skills", "work", apply_mode=True)[1])
+            self.assertIn("-Json", app._build_sync_command("antigravity-config", "work", apply_mode=False)[1])
+            self.assertIn("-Json", app._build_sync_command("mcp", "work", apply_mode=False)[1])
+            self.assertNotIn("-Json", app._build_sync_command("codex-env", "work", apply_mode=False)[1])
+
+            # 1. codex-skills JSON preview
+            st1, _, r1 = self._request(port, "POST", "/api/sync/preview", headers=hdrs, body={"target": "codex-skills", "environment": "work"})
+            self.assertEqual(st1, 202)
+            p1 = self._wait_job(port, json.loads(r1.decode("utf-8"))["job"]["id"])["preview"]
+            self.assertTrue(p1["can_apply"])
+            self.assertTrue(p1["has_prune"])
+            self.assertIn("变更 1 项：add SKILL.md", p1["items"][0]["detail"])
+            self.assertIn("未记录在部署状态中", p1["risk_notice_zh"])
+            self.assertIn("中断部署", p1["risk_notice_zh"])
+
+            # 2. antigravity-config JSON preview
+            st2, _, r2 = self._request(port, "POST", "/api/sync/preview", headers=hdrs, body={"target": "antigravity-config"})
+            self.assertEqual(st2, 202)
+            p2 = self._wait_job(port, json.loads(r2.decode("utf-8"))["job"]["id"])["preview"]
+            self.assertTrue(p2["can_apply"])
+            self.assertEqual(p2["items"][0]["name"], "Antigravity/AGENTS.md")
+            self.assertIn("受管配置更新", p2["items"][0]["detail"])
+
+            # 3. mcp JSON preview
+            st3, _, r3 = self._request(port, "POST", "/api/sync/preview", headers=hdrs, body={"target": "mcp"})
+            self.assertEqual(st3, 202)
+            p3 = self._wait_job(port, json.loads(r3.decode("utf-8"))["job"]["id"])["preview"]
+            self.assertTrue(p3["can_apply"])
+            self.assertEqual(p3["items"][0]["name"], "Codex/blender")
+            self.assertEqual(p3["items"][0]["action"], "unchanged")
+            self.assertIn("managed-entry-match-local-disabled", p3["items"][0]["detail"])
+            self.assertEqual(p3["items"][1]["action"], "update")
+
+            # 4. sync.skills surfaced across checked / drifted / build-required
+            s_ok = json.loads(self._request(port, "GET", "/api/sync-status?refresh=1")[2].decode("utf-8"))
+            self.assertEqual(s_ok["summary_level"], "ok")
+            self.assertIn("10/10 一致", s_ok["skills"]["summary_zh"])
+
+            sync_skills_payload["Summary"] = {"install": 0, "update": 2, "unchanged": 8, "prune": 0, "unknown": 0}
+            s_drift = json.loads(self._request(port, "GET", "/api/sync-status?refresh=1")[2].decode("utf-8"))
+            self.assertEqual(s_drift["summary_level"], "warn")
+            self.assertIn("待同步", s_drift["skills"]["summary_zh"])
+
+            sync_skills_payload["State"] = "build-required"
+            sync_skills_payload["Summary"] = None
+            s_build = json.loads(self._request(port, "GET", "/api/sync-status?refresh=1")[2].decode("utf-8"))
+            self.assertEqual(s_build["summary_level"], "warn")
+            self.assertIn("build-skills", s_build["skills"]["summary_zh"])
 
 
 if __name__ == "__main__":
