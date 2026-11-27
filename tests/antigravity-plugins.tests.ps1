@@ -117,25 +117,50 @@ function Invoke-AgNativeCommand {
     }
     throw 'Unexpected native command: the fixture permits only version/list/strict validate/install/uninstall.'
 }
-function New-PluginFixture([string] $Name) {
+$script:MinimalPluginTemplate = $null
+function New-PluginFixture([string] $Name, [switch] $FullSelection) {
     $root = Join-Path $suiteWork $Name
-    [IO.Directory]::CreateDirectory($root) | Out-Null
-    foreach ($path in @('.gitleaks.toml','tools/gitleaks/gitleaks.lock.json','harness-source/antigravity/plugins.psd1')) {
-        $destination = Join-Path $root $path
-        [IO.Directory]::CreateDirectory((Split-Path -Parent $destination)) | Out-Null
-        Copy-Item -LiteralPath (Join-Path $suiteRepo $path) -Destination $destination
+    if ($FullSelection) {
+        [IO.Directory]::CreateDirectory($root) | Out-Null
+        foreach ($path in @('.gitleaks.toml','tools/gitleaks/gitleaks.lock.json','harness-source/antigravity/plugins.psd1')) {
+            $destination = Join-Path $root $path
+            [IO.Directory]::CreateDirectory((Split-Path -Parent $destination)) | Out-Null
+            Copy-Item -LiteralPath (Join-Path $suiteRepo $path) -Destination $destination
+        }
+        [IO.Directory]::CreateDirectory((Join-Path $root 'skills-source/shared')) | Out-Null
+        $configured = Import-PowerShellDataFile -LiteralPath (Join-Path $suiteRepo 'harness-source/antigravity/plugins.psd1')
+        $selectedSkills = @($configured.ManagedPlugin.Skills)
+        foreach ($skillName in $selectedSkills) {
+            Copy-SkillTree -SourceRoot (Join-Path $suiteRepo ('skills-source/shared/' + $skillName)) -DestinationRoot (Join-Path $root ('skills-source/shared/' + $skillName))
+        }
+        Set-TestFile -Path (Join-Path $root 'skills-source/shared/git-review/CREATION-LOG.md') -Content 'source only'
+        Set-TestFile -Path (Join-Path $root 'skills-source/shared/unselected/SKILL.md') -Content 'unselected'
+        $script:AgTestNativeRoot = Join-Path $root 'native-config'
+        [IO.Directory]::CreateDirectory($script:AgTestNativeRoot) | Out-Null
+        Set-TestFile -Path (Join-Path $script:AgTestNativeRoot 'config.json') -Content '{"plugins":{}}'
     }
-    [IO.Directory]::CreateDirectory((Join-Path $root 'skills-source/shared')) | Out-Null
-    $configured = Import-PowerShellDataFile -LiteralPath (Join-Path $suiteRepo 'harness-source/antigravity/plugins.psd1')
-    $selectedSkills = @($configured.ManagedPlugin.Skills)
-    foreach ($name in $selectedSkills) {
-        Copy-SkillTree -SourceRoot (Join-Path $suiteRepo ('skills-source/shared/' + $name)) -DestinationRoot (Join-Path $root ('skills-source/shared/' + $name))
+    else {
+        $selectedSkills = @('git-review')
+        if ($null -eq $script:MinimalPluginTemplate) {
+            $tpl = Join-Path $suiteWork '_template-minimal'
+            [IO.Directory]::CreateDirectory($tpl) | Out-Null
+            foreach ($path in @('.gitleaks.toml','tools/gitleaks/gitleaks.lock.json','harness-source/antigravity/plugins.psd1')) {
+                $destination = Join-Path $tpl $path
+                [IO.Directory]::CreateDirectory((Split-Path -Parent $destination)) | Out-Null
+                Copy-Item -LiteralPath (Join-Path $suiteRepo $path) -Destination $destination
+            }
+            $tplConfigPath = Join-Path $tpl 'harness-source/antigravity/plugins.psd1'
+            Set-TestFile -Path $tplConfigPath -Content ([regex]::Replace([IO.File]::ReadAllText($tplConfigPath), 'Skills\s*=\s*@\([\s\S]*?\)', "Skills = @('git-review')"))
+            [IO.Directory]::CreateDirectory((Join-Path $tpl 'skills-source/shared')) | Out-Null
+            Copy-SkillTree -SourceRoot (Join-Path $suiteRepo 'skills-source/shared/git-review') -DestinationRoot (Join-Path $tpl 'skills-source/shared/git-review')
+            Set-TestFile -Path (Join-Path $tpl 'skills-source/shared/git-review/CREATION-LOG.md') -Content 'source only'
+            Set-TestFile -Path (Join-Path $tpl 'skills-source/shared/unselected/SKILL.md') -Content 'unselected'
+            Set-TestFile -Path (Join-Path $tpl 'native-config/config.json') -Content '{"plugins":{}}'
+            $script:MinimalPluginTemplate = $tpl
+        }
+        Copy-Item -LiteralPath $script:MinimalPluginTemplate -Destination $root -Recurse -Force
+        $script:AgTestNativeRoot = Join-Path $root 'native-config'
     }
-    Set-TestFile -Path (Join-Path $root 'skills-source/shared/git-review/CREATION-LOG.md') -Content 'source only'
-    Set-TestFile -Path (Join-Path $root 'skills-source/shared/unselected/SKILL.md') -Content 'unselected'
-    $script:AgTestNativeRoot = Join-Path $root 'native-config'
-    [IO.Directory]::CreateDirectory($script:AgTestNativeRoot) | Out-Null
-    Set-TestFile -Path (Join-Path $script:AgTestNativeRoot 'config.json') -Content '{"plugins":{}}'
     $state = Join-Path $root 'state'
     [IO.Directory]::CreateDirectory($state) | Out-Null
     $script:AgTestVersion='1.5.8'
@@ -168,10 +193,14 @@ function Get-OnlyAttemptResult {
     Assert-PluginTest ($attempts.Count -eq 1) 'exactly one attempt is retained without retry'
     return Read-AgJsonFile (Join-Path $attempts[0].FullName 'result.json')
 }
+function Get-NextPluginVersion([string] $Version) {
+    $parsed = [version]$Version
+    return "$($parsed.Major).$($parsed.Minor + 1).0"
+}
 
 try {
     Write-Host 'Antigravity: reproducible package and read-only planning'
-    $root = New-PluginFixture 'package'
+    $root = New-PluginFixture 'package' -FullSelection
     $missing = Get-AgPluginPlan
     Assert-PluginTest ($missing.Action -eq 'blocked' -and $missing.Reason -eq 'candidate-missing' -and -not (Test-Path $script:AgWork)) 'missing candidate status does not build or create management state'
     $first = New-AgPluginBuild
@@ -179,7 +208,8 @@ try {
     $second = New-AgPluginBuild
     Assert-PluginTest ($first.Digest -ceq $second.Digest -and (Get-AgMapDigest $firstFiles) -ceq (Get-AgMapDigest (Get-AgTreeFiles $script:AgPackage))) 'identical inputs produce identical package files and digest'
     $skillDirs = @(Get-ChildItem (Join-Path $script:AgPackage 'skills') -Directory | Sort-Object Name | ForEach-Object Name)
-    Assert-PluginTest (($skillDirs -join ',') -ceq 'git-review,multimodal-generation,systematic-debugging,verification-before-completion') 'only the reviewed canonical shared skills are packaged'
+    $expectedSkills = @($script:AgConfig.ManagedPlugin.Skills | Sort-Object) -join ','
+    Assert-PluginTest (($skillDirs -join ',') -ceq $expectedSkills) 'only the reviewed canonical shared skills are packaged'
     Assert-PluginTest (-not (Test-Path (Join-Path $script:AgPackage 'skills/git-review/CREATION-LOG.md')) -and -not (Test-Path (Join-Path $script:AgPackage 'skills/systematic-debugging/CREATION-LOG.md')) -and (Test-Path (Join-Path $script:AgPackage 'skills/git-review/SKILL.md')) -and (Test-Path (Join-Path $script:AgPackage 'skills/systematic-debugging/root-cause-tracing.md')) -and (Test-Path (Join-Path $script:AgPackage 'skills/verification-before-completion/SKILL.md'))) 'source-only creation log is excluded and skill assets are preserved'
     $manifest = Read-AgJsonFile (Join-Path $script:AgPackage 'plugin.json')
     Assert-PluginTest (($manifest.Keys | Sort-Object) -join ',' -ceq '$schema,description,displayName,name,version') 'manifest contains only the reviewed metadata without extra components'
@@ -204,10 +234,10 @@ try {
     Assert-PluginTest ($build.NativeValidation -eq 'UNKNOWN' -and (Get-AgPluginPlan).Action -eq 'blocked') 'build without agy remains unvalidated and cannot deploy'
 
     Write-Host 'Antigravity: reject unsafe selection, links and incompatible native data'
+    $root = New-PluginFixture 'selection-invalid'
+    $baseSelectionConfig = Get-Content $script:AgConfigPath -Raw
     foreach ($replacement in @("Skills = @('../git-review', 'git-review')", "Skills = @('git-review', 'git-review')", "Skills = @()")) {
-        $root = New-PluginFixture ('selection-' + [Guid]::NewGuid().ToString('N'))
-        $config = Get-Content $script:AgConfigPath -Raw
-        $updated = [regex]::Replace($config, 'Skills\s*=\s*@\([\s\S]*?\)', $replacement)
+        $updated = [regex]::Replace($baseSelectionConfig, 'Skills\s*=\s*@\([\s\S]*?\)', $replacement)
         Set-TestFile -Path $script:AgConfigPath -Content $updated
         Assert-PluginThrows { Initialize-AgPluginContext $root } 'Invalid managed plugin skill selection' 'traversal, empty and duplicate skill selections are rejected'
     }
@@ -229,13 +259,15 @@ try {
     New-Item -ItemType Junction -Path $link -Target $script:AgTestNativeRoot | Out-Null
     try { Assert-PluginThrows { Initialize-AgPluginContext $root } 'reparse' 'source junctions are rejected before copying' }
     finally { Remove-Item -LiteralPath $link -Force }
+    $null = New-PluginFixture 'inventory-malformed'
     foreach ($badJson in @('{}','[{"name":"bad","path":"relative","enabled":true}]','[{"name":"bad","path":"C:/fixture","enabled":"true"}]')) {
-        $null = New-PluginFixture ('inventory-' + [Guid]::NewGuid().ToString('N'))
         $script:AgTestListJson=$badJson
         Assert-PluginThrows { Get-AgPluginPlan } 'native.*schema' 'malformed native inventory fails closed'
     }
+    $script:AgTestListJson = $null
+    $null = New-PluginFixture 'validate-schema'
     foreach ($issue in @('warning','extra-component','missing-field','wrong-type')) {
-        $null = New-PluginFixture ('validate-' + $issue)
+        $script:AgTestValidation=@{ dir='fixture'; components=@{agents=0;hooks=0;mcpServers=0;rules=0;sidecars=0;skills=1}; findings=@(); agentPluginsSpec=$false }
         switch ($issue) {
             wrong-type { $script:AgTestValidation.agentPluginsSpec='unknown' }
             warning { $script:AgTestValidation.findings=@(@{severity='warning'}) }
@@ -292,8 +324,9 @@ try {
     $null = New-AgPluginBuild
     $baseline = Invoke-AgPluginDeploy -DoApply
     Assert-PluginTest ($script:AgTestInstallCalls -eq 1 -and $script:AgTestUninstallCalls -eq 0) 'baseline installed'
+    $nextVersion = Get-NextPluginVersion $baseline.Version
 
-    Set-TestFile -Path $script:AgConfigPath -Content ([regex]::Replace((Get-Content $script:AgConfigPath -Raw), "Version = '[^']+'", "Version = '0.5.0'"))
+    Set-TestFile -Path $script:AgConfigPath -Content ([regex]::Replace((Get-Content $script:AgConfigPath -Raw), "Version = '[^']+'", "Version = '$nextVersion'"))
     Initialize-AgPluginContext -Root $root -StateRoot (Join-Path $root 'state')
     $script:AgNative = 'fixture-only'
 
@@ -328,9 +361,9 @@ try {
 
     # Update Apply
     $appliedUpdate = Invoke-AgPluginDeploy -DoApply
-    Assert-PluginTest ($appliedUpdate.Action -eq 'unchanged' -and $appliedUpdate.Version -eq '0.5.0' -and $script:AgTestUninstallCalls -eq 1 -and $script:AgTestInstallCalls -eq 2) 'update apply uninstalls then installs and converges to unchanged'
+    Assert-PluginTest ($appliedUpdate.Action -eq 'unchanged' -and $appliedUpdate.Version -eq $nextVersion -and $script:AgTestUninstallCalls -eq 1 -and $script:AgTestInstallCalls -eq 2) 'update apply uninstalls then installs and converges to unchanged'
     $receipt = Read-AgJsonFile $script:AgInstallReceipt
-    Assert-PluginTest ($receipt.Version -eq '0.5.0' -and $receipt.PreviousVersion -eq $baseline.Version) 'update receipt records target version and previous version'
+    Assert-PluginTest ($receipt.Version -eq $nextVersion -and $receipt.PreviousVersion -eq $baseline.Version) 'update receipt records target version and previous version'
     $attemptDir = $receipt.Attempt
     Assert-PluginTest (Test-Path -LiteralPath (Join-Path $attemptDir 'backup/plugin.json')) 'pre-write backup is preserved in attempt folder'
     $backupReceipt = Read-AgJsonFile (Join-Path $attemptDir 'backup/plugin.json')
@@ -342,7 +375,8 @@ try {
     $root = New-PluginFixture 'version-update-uninstall-fails'
     $null = New-AgPluginBuild
     $originalInstall = Invoke-AgPluginDeploy -DoApply
-    Set-TestFile -Path $script:AgConfigPath -Content ([regex]::Replace((Get-Content $script:AgConfigPath -Raw), "Version = '[^']+'", "Version = '0.5.0'"))
+    $uninstallTargetVersion = Get-NextPluginVersion $originalInstall.Version
+    Set-TestFile -Path $script:AgConfigPath -Content ([regex]::Replace((Get-Content $script:AgConfigPath -Raw), "Version = '[^']+'", "Version = '$uninstallTargetVersion'"))
     Initialize-AgPluginContext -Root $root -StateRoot (Join-Path $root 'state')
     $script:AgNative = 'fixture-only'
     $null = New-AgPluginBuild
@@ -364,8 +398,9 @@ try {
     # Install failure after uninstall retains backup
     $root = New-PluginFixture 'version-update-install-fails'
     $null = New-AgPluginBuild
-    $null = Invoke-AgPluginDeploy -DoApply
-    Set-TestFile -Path $script:AgConfigPath -Content ([regex]::Replace((Get-Content $script:AgConfigPath -Raw), "Version = '[^']+'", "Version = '0.5.0'"))
+    $installBaseline = Invoke-AgPluginDeploy -DoApply
+    $installTargetVersion = Get-NextPluginVersion $installBaseline.Version
+    Set-TestFile -Path $script:AgConfigPath -Content ([regex]::Replace((Get-Content $script:AgConfigPath -Raw), "Version = '[^']+'", "Version = '$installTargetVersion'"))
     Initialize-AgPluginContext -Root $root -StateRoot (Join-Path $root 'state')
     $script:AgNative = 'fixture-only'
     $null = New-AgPluginBuild
