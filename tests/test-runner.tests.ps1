@@ -202,6 +202,94 @@ exit 7
     }
     $timeoutTreeTerminal = $true
 
+    Write-Host '[parallel execution, LPT ordering, non-interleaved output, and pool timeout]'
+    $parallelWaitA = @'
+$dir = Split-Path -Parent $PSScriptRoot
+[IO.File]::WriteAllText((Join-Path $dir 'a.started'), '1')
+$deadline = [DateTime]::UtcNow.AddSeconds(8)
+while (-not (Test-Path -LiteralPath (Join-Path $dir 'b.started')) -and [DateTime]::UtcNow -lt $deadline) { Start-Sleep -Milliseconds 50 }
+if (Test-Path -LiteralPath (Join-Path $dir 'b.started')) { Write-Host 'a saw b concurrent' }
+$t0 = [DateTime]::UtcNow.Ticks
+Start-Sleep -Seconds 1
+$t1 = [DateTime]::UtcNow.Ticks
+[IO.File]::WriteAllText((Join-Path $dir 'a.times'), "$t0,$t1")
+Write-Host 'parallel a done'
+exit 0
+'@
+    $parallelWaitB = @'
+$dir = Split-Path -Parent $PSScriptRoot
+[IO.File]::WriteAllText((Join-Path $dir 'b.started'), '1')
+$deadline = [DateTime]::UtcNow.AddSeconds(8)
+while (-not (Test-Path -LiteralPath (Join-Path $dir 'a.started')) -and [DateTime]::UtcNow -lt $deadline) { Start-Sleep -Milliseconds 50 }
+if (Test-Path -LiteralPath (Join-Path $dir 'a.started')) { Write-Host 'b saw a concurrent' }
+$t0 = [DateTime]::UtcNow.Ticks
+Start-Sleep -Seconds 1
+$t1 = [DateTime]::UtcNow.Ticks
+[IO.File]::WriteAllText((Join-Path $dir 'b.times'), "$t0,$t1")
+Write-Host 'parallel b done'
+exit 0
+'@
+    $r = Invoke-Runner 'parallel-concurrent' @{ 'p-a.tests.ps1' = 30; 'p-b.tests.ps1' = 30 } -InlineSuites @{ 'p-a.tests.ps1' = $parallelWaitA; 'p-b.tests.ps1' = $parallelWaitB } -RunnerArgs @('-MaxParallel', '2')
+    $aTimes = @((Get-Content -LiteralPath (Join-Path $r.Repo 'a.times') -Raw).Trim() -split ',' | ForEach-Object { [int64]$_ })
+    $bTimes = @((Get-Content -LiteralPath (Join-Path $r.Repo 'b.times') -Raw).Trim() -split ',' | ForEach-Object { [int64]$_ })
+    $parallelSpan = ([Math]::Max($aTimes[1], $bTimes[1]) - [Math]::Min($aTimes[0], $bTimes[0])) / [double][TimeSpan]::TicksPerSecond
+    $serialSum = (($aTimes[1] - $aTimes[0]) + ($bTimes[1] - $bTimes[0])) / [double][TimeSpan]::TicksPerSecond
+    Assert ($r.Code -eq 0 -and $r.Out -match 'a saw b concurrent' -and $r.Out -match 'b saw a concurrent' -and $r.Out -match 'Test summary: PASS; suites=2; failed=0') '-MaxParallel 2 runs suites concurrently'
+    Assert ($parallelSpan -lt $serialSum) ("-MaxParallel 2 concurrent span ({0:n2}s) is faster than serial sum ({1:n2}s)" -f $parallelSpan, $serialSum)
+
+    $alphaSuite = @'
+Write-Host 'alpha-line-1'
+Start-Sleep -Milliseconds 150
+Write-Host 'alpha-line-2'
+Start-Sleep -Milliseconds 150
+Write-Host 'alpha-line-3'
+exit 0
+'@
+    $betaSuite = @'
+Write-Host 'beta-line-1'
+Start-Sleep -Milliseconds 100
+[Console]::Error.WriteLine('beta-stderr-line')
+Start-Sleep -Milliseconds 100
+Write-Host 'beta-line-2'
+exit 5
+'@
+    $r = Invoke-Runner 'parallel-partial-fail' @{ 'alpha.tests.ps1' = 30; 'beta.tests.ps1' = 30 } -InlineSuites @{ 'alpha.tests.ps1' = $alphaSuite; 'beta.tests.ps1' = $betaSuite } -RunnerArgs @('-MaxParallel', '2')
+    $alphaBlock = [regex]::Match($r.Out, '(?s)=== alpha\.tests\.ps1 ===.*?--- alpha\.tests\.ps1 PASS[^\r\n]*')
+    $betaBlock = [regex]::Match($r.Out, '(?s)=== beta\.tests\.ps1 ===.*?--- beta\.tests\.ps1 FAIL: exit code 5[^\r\n]*')
+    Assert ($r.Code -eq 1 -and $r.Out -match 'Test summary: FAIL; suites=2; failed=1') 'parallel partial failure reports FAIL summary'
+    Assert ($alphaBlock.Success -and $alphaBlock.Value -match 'alpha-line-1' -and $alphaBlock.Value -match 'alpha-line-3' -and $alphaBlock.Value -notmatch 'beta-') 'passing suite output block is contiguous and free of sibling lines'
+    Assert ($betaBlock.Success -and $betaBlock.Value -match 'beta-line-1' -and $betaBlock.Value -match 'beta-stderr-line' -and $betaBlock.Value -match 'beta-line-2' -and $betaBlock.Value -notmatch 'alpha-') 'failing suite output block keeps stdout/stderr contiguous and free of sibling lines'
+
+    $poolStateRoot = Join-Path $work 'parallel-timeout-tree-state'
+    [Environment]::SetEnvironmentVariable($stateVariable, $poolStateRoot)
+    $r = Invoke-Runner 'parallel-timeout' @{ 'pass.tests.ps1' = 30; 'timeout-parent.tests.ps1' = 5 } @('pass.tests.ps1', 'timeout-parent.tests.ps1') -RunnerArgs @('-MaxParallel', '2')
+    Assert ($r.Code -eq 1 -and $r.Out -match '--- pass\.tests\.ps1 PASS' -and $r.Out -match 'timeout-parent\.tests\.ps1: timed out after 5 s' -and $r.Out -match 'Test summary: FAIL; suites=2; failed=1') 'parallel pool kills timed-out suite while letting sibling suite pass'
+    foreach ($name in @('parent', 'child', 'grandchild')) {
+        $pidPath = Join-Path $poolStateRoot "$name.pid"
+        Assert (Test-Path -LiteralPath $pidPath -PathType Leaf) "parallel pool timeout: $name process started"
+        $processId = [int](Get-Content -Raw -LiteralPath $pidPath)
+        Start-Sleep -Milliseconds 150
+        Assert ($null -eq (Get-Process -Id $processId -ErrorAction SilentlyContinue)) "parallel pool timeout: $name process is no longer alive"
+    }
+
+    $lptSlow = @'
+$log = Join-Path (Split-Path -Parent $PSScriptRoot) 'order.log'
+[IO.File]::AppendAllText($log, "slow-start`n")
+Start-Sleep -Milliseconds 150
+[IO.File]::AppendAllText($log, "slow-end`n")
+exit 0
+'@
+    $lptFast = @'
+$log = Join-Path (Split-Path -Parent $PSScriptRoot) 'order.log'
+[IO.File]::AppendAllText($log, "fast-start`n")
+Start-Sleep -Milliseconds 100
+[IO.File]::AppendAllText($log, "fast-end`n")
+exit 0
+'@
+    $r = Invoke-Runner 'max-parallel-1-lpt' @{ 'lpt-fast.tests.ps1' = 10; 'lpt-slow.tests.ps1' = 40 } -InlineSuites @{ 'lpt-fast.tests.ps1' = $lptFast; 'lpt-slow.tests.ps1' = $lptSlow } -RunnerArgs @('-MaxParallel', '1')
+    $orderLines = @(Get-Content -LiteralPath (Join-Path $r.Repo 'order.log'))
+    Assert ($r.Code -eq 0 -and ($orderLines -join ',') -eq 'slow-start,slow-end,fast-start,fast-end') '-MaxParallel 1 executes sequentially in descending budget (LPT) order'
+
     Write-Host 'test runner tests: PASS'
 }
 finally {

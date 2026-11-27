@@ -161,7 +161,7 @@ $extra        }
 }
 
 function New-TestHarnessRepo {
-    param([Parameter(Mandatory)] [string] $Name)
+    param([Parameter(Mandatory)] [string] $Name, [switch] $SkipGitInit)
     $repo = Join-Path $work $Name
     New-Item -ItemType Directory -Path (Join-Path $repo 'scripts') -Force | Out-Null
     New-Item -ItemType Directory -Path (Join-Path $repo 'harness-source/profiles') -Force | Out-Null
@@ -176,8 +176,10 @@ function New-TestHarnessRepo {
     Copy-Item -LiteralPath (Join-Path $RepoRoot 'tools/gitleaks/gitleaks.lock.json') -Destination (Join-Path $repo 'tools/gitleaks/gitleaks.lock.json') -Force
     $gitleaks = Join-Path $RepoRoot '.gitleaks.toml'
     if (Test-Path -LiteralPath $gitleaks) { Copy-Item -LiteralPath $gitleaks -Destination $repo -Force }
-    & git -C $repo init --quiet
-    if ($LASTEXITCODE -ne 0) { throw "Unable to initialize harness fixture repository: $repo" }
+    if (-not $SkipGitInit) {
+        & git -C $repo init --quiet
+        if ($LASTEXITCODE -ne 0) { throw "Unable to initialize harness fixture repository: $repo" }
+    }
 
     Set-File -Path (Join-Path $repo 'harness-source/profiles/base.psd1') -Content (New-ProjectProfileText -TargetPlatforms @('Codex'))
     Add-Component -HarnessRepo $repo -Path 'rules/safe-file-edits' -Id 'safe-file-edits' -Kind 'Rule' -Target 'AGENTS.md' -Mode 'ManagedBlock' -BlockId 'safe-file-edits' -Content "Safe file edit rule.`n"
@@ -257,6 +259,17 @@ function Assert-Fails {
     param([scriptblock] $Run, [string] $Pattern, [string] $Message)
     $result = & $Run
     Assert (($result.Code -ne 0) -and ($result.Out -match $Pattern)) $Message
+}
+
+function Invoke-PlanFailure {
+    param([Parameter(Mandatory)] [string] $HarnessRepo, [Parameter(Mandatory)] [string] $ProjectRoot)
+    try {
+        $null = New-HarnessProfilePlan -RepoRoot $HarnessRepo -ProjectRoot $ProjectRoot -Mode 'status'
+        return [pscustomobject]@{ Code = 0; Out = '' }
+    }
+    catch {
+        return [pscustomobject]@{ Code = 1; Out = $_.Exception.Message }
+    }
 }
 
 # ===========================================================================
@@ -434,30 +447,30 @@ function Set-Content {
 # ===========================================================================
 Write-Host "`n[validation failures]" -ForegroundColor Cyan
 # ===========================================================================
-$dupeRepo = New-TestHarnessRepo -Name 'duplicate-repo'
+$dupeRepo = New-TestHarnessRepo -Name 'duplicate-repo' -SkipGitInit
 Add-Component -HarnessRepo $dupeRepo -Path 'rules/duplicate-safe-file-edits' -Id 'safe-file-edits' -Kind 'Rule' -Target 'AGENTS.md' -Mode 'ManagedBlock' -Content 'duplicate'
 $project = New-TestProject -Name 'duplicate-project' -ProfileText (New-ProjectProfileText -Rules @('safe-file-edits'))
 Assert-Fails -Run { Invoke-Script -Script $statusScript -ScriptArgs @('-RepoRoot', $dupeRepo, '-ProjectRoot', $project) } -Pattern 'Duplicate harness component' -Message 'validation: duplicate component IDs fail'
 
 foreach ($retiredKey in @('Future', 'RequiredEnv')) {
     $project = New-TestProject -Name "unknown-$retiredKey-project" -ProfileText (New-ProjectProfileText -Rules @('safe-file-edits') -ExtraLine "    $retiredKey = 'unused'")
-    Assert-Fails -Run { Invoke-Script -Script $statusScript -ScriptArgs @('-RepoRoot', $repo, '-ProjectRoot', $project) } -Pattern "unknown key '$retiredKey'" -Message "validation: retired top-level key $retiredKey is rejected"
+    Assert-Fails -Run { Invoke-PlanFailure -HarnessRepo $repo -ProjectRoot $project } -Pattern "unknown key '$retiredKey'" -Message "validation: retired top-level key $retiredKey is rejected"
 }
 
-$componentKeyRepo = New-TestHarnessRepo -Name 'component-key-repo'
+$componentKeyRepo = New-TestHarnessRepo -Name 'component-key-repo' -SkipGitInit
 $keyComponent = Join-Path $componentKeyRepo 'harness-source/components/rules/safe-file-edits/component.psd1'
 Set-File -Path $keyComponent -Content ((Get-Content -Raw -LiteralPath $keyComponent) -replace "(?m)^(\s*Kind = 'Rule')", "`$1`n    Requires = @()")
 $project = New-TestProject -Name 'component-key-project' -ProfileText (New-ProjectProfileText -Rules @('safe-file-edits'))
-Assert-Fails -Run { Invoke-Script -Script $statusScript -ScriptArgs @('-RepoRoot', $componentKeyRepo, '-ProjectRoot', $project) } -Pattern "unknown key 'Requires'" -Message 'validation: unknown component key is rejected'
+Assert-Fails -Run { Invoke-PlanFailure -HarnessRepo $componentKeyRepo -ProjectRoot $project } -Pattern "unknown key 'Requires'" -Message 'validation: unknown component key is rejected'
 
-$allowlistRepo = New-TestHarnessRepo -Name 'allowlist-repo'
+$allowlistRepo = New-TestHarnessRepo -Name 'allowlist-repo' -SkipGitInit
 Add-Component -HarnessRepo $allowlistRepo -Path 'codex-prompts/misplaced' -Id 'misplaced' -Kind 'CodexPrompt' -Target '.claude/agents/misplaced.md' -Mode 'DirectoryFiles' -Content "Misplaced.`n"
 $project = New-TestProject -Name 'allowlist-project' -ProfileText (New-ProjectProfileText -CodexAgents @('misplaced'))
-Assert-Fails -Run { Invoke-Script -Script $statusScript -ScriptArgs @('-RepoRoot', $allowlistRepo, '-ProjectRoot', $project) } -Pattern 'outside the CodexPrompt allowlist' -Message 'validation: target outside the Kind allowlist fails'
+Assert-Fails -Run { Invoke-PlanFailure -HarnessRepo $allowlistRepo -ProjectRoot $project } -Pattern 'outside the CodexPrompt allowlist' -Message 'validation: target outside the Kind allowlist fails'
 
 Add-Component -HarnessRepo $allowlistRepo -Path 'rules/no-platform' -Id 'no-platform' -TargetPlatforms @() -Target 'AGENTS.md' -Mode 'ManagedBlock' -Content 'Fixture rule.'
 $project = New-TestProject -Name 'platform-mismatch-project' -ProfileText (New-ProjectProfileText -Rules @('no-platform'))
-Assert-Fails -Run { Invoke-Script -Script $statusScript -ScriptArgs @('-RepoRoot', $allowlistRepo, '-ProjectRoot', $project) } -Pattern 'does not support any selected target platform' -Message 'validation: component without a selected target platform fails'
+Assert-Fails -Run { Invoke-PlanFailure -HarnessRepo $allowlistRepo -ProjectRoot $project } -Pattern 'does not support any selected target platform' -Message 'validation: component without a selected target platform fails'
 
 $project = New-TestProject -Name 'platform-project' -ProfileText (New-ProjectProfileText -TargetPlatforms @('Claude') -Rules @('safe-file-edits'))
 $before = Get-FileSnapshot -Root $project
@@ -466,7 +479,7 @@ Assert (@(Compare-FileSnapshot -Before $before -After (Get-FileSnapshot -Root $p
 
 foreach ($bucket in @('McpTemplates', 'Commands', 'Agents', 'ClaudeSettings')) {
     $project = New-TestProject -Name "retired-$bucket-project" -ProfileText (New-ProjectProfileText -ExtraComponentLine "        $bucket = @()")
-    Assert-Fails -Run { Invoke-Script -Script $statusScript -ScriptArgs @('-RepoRoot', $repo, '-ProjectRoot', $project) } -Pattern "unknown key '$bucket'" -Message "validation: retired $bucket bucket is rejected"
+    Assert-Fails -Run { Invoke-PlanFailure -HarnessRepo $repo -ProjectRoot $project } -Pattern "unknown key '$bucket'" -Message "validation: retired $bucket bucket is rejected"
 }
 
 $invalidTargets = @(
@@ -478,10 +491,10 @@ $invalidTargets = @(
     @{ Name = 'home'; Target = '~/.codex/file.md'; Pattern = 'Home-rooted' }
 )
 foreach ($case in $invalidTargets) {
-    $badRepo = New-TestHarnessRepo -Name "invalid-target-$($case.Name)"
+    $badRepo = New-TestHarnessRepo -Name "invalid-target-$($case.Name)" -SkipGitInit
     Add-Component -HarnessRepo $badRepo -Path 'rules/bad-target' -Id 'bad-target' -Kind 'Rule' -Target $case.Target -Mode 'ManagedBlock' -Content 'bad target'
     $project = New-TestProject -Name "invalid-target-$($case.Name)-project" -ProfileText (New-ProjectProfileText -Rules @('bad-target'))
-    Assert-Fails -Run { Invoke-Script -Script $statusScript -ScriptArgs @('-RepoRoot', $badRepo, '-ProjectRoot', $project) } -Pattern $case.Pattern -Message "validation: $($case.Name) target reference fails"
+    Assert-Fails -Run { Invoke-PlanFailure -HarnessRepo $badRepo -ProjectRoot $project } -Pattern $case.Pattern -Message "validation: $($case.Name) target reference fails"
 }
 
 # ===========================================================================
@@ -591,13 +604,13 @@ Set-File -Path (Join-Path $lcBlockProject 'AGENTS.md') "<!-- begin agent-harness
 $rLc = Invoke-Script -Script $applyScript -ScriptArgs @('-RepoRoot', $repo, '-ProjectRoot', $lcBlockProject, '-Apply')
 Assert ($rLc.Code -eq 0 -and (Get-Content -Raw -LiteralPath (Join-Path $lcBlockProject 'AGENTS.md')) -match 'Safe file edit rule') 'managed block: lowercase markers match and replace cleanly'
 
-$dupeTargetRepo = New-TestHarnessRepo -Name 'dupe-target-repo'
+$dupeTargetRepo = New-TestHarnessRepo -Name 'dupe-target-repo' -SkipGitInit
 Add-Component -HarnessRepo $dupeTargetRepo -Path 'codex-prompts/dup-a' -Id 'dup-a' -Kind 'CodexPrompt' -Target '.codex/prompts/shared.md' -Mode 'DirectoryFiles' -Content "A`n"
 Add-Component -HarnessRepo $dupeTargetRepo -Path 'codex-prompts/dup-b' -Id 'dup-b' -Kind 'CodexPrompt' -Target '.codex/prompts/shared.md' -Mode 'DirectoryFiles' -Content "B`n"
 $dupeTargetProj = New-TestProject -Name 'dupe-target-proj' -ProfileText (New-ProjectProfileText -CodexAgents @('dup-a', 'dup-b'))
-Assert-Fails -Run { Invoke-Script -Script $statusScript -ScriptArgs @('-RepoRoot', $dupeTargetRepo, '-ProjectRoot', $dupeTargetProj) } -Pattern 'Duplicate harness target path' 'validation: duplicate target paths across components are rejected'
+Assert-Fails -Run { Invoke-PlanFailure -HarnessRepo $dupeTargetRepo -ProjectRoot $dupeTargetProj } -Pattern 'Duplicate harness target path' 'validation: duplicate target paths across components are rejected'
 
-$srcJuncRepo = New-TestHarnessRepo -Name 'src-junc-repo'
+$srcJuncRepo = New-TestHarnessRepo -Name 'src-junc-repo' -SkipGitInit
 $srcJuncTarget = Join-Path $work 'src-junc-outside'
 New-Item -ItemType Directory -Path $srcJuncTarget -Force | Out-Null
 New-Item -ItemType Junction -Path (Join-Path $srcJuncRepo 'harness-source/components/linked-comp') -Target $srcJuncTarget | Out-Null

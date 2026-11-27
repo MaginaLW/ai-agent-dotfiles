@@ -16,6 +16,29 @@ function Set-TestEnvironment([string] $Repo, [string[]] $Skills) {
 function Invoke-Deploy([string] $Repo, [string] $HomeDir, [string[]] $Extra = @()) {
     Invoke-TestProcess -ScriptPath $deploy -Arguments (@('-Environment', 'test', '-RepoRoot', $Repo, '-HomeRoot', $HomeDir, '-StateRoot', (Join-Path $HomeDir 'state'), '-SkipBuild') + $Extra)
 }
+function Invoke-DeployInProcess([string] $Repo, [string] $HomeDir, [string[]] $Extra = @()) {
+    $invArgs = @{
+        Environment = 'test'
+        RepoRoot    = $Repo
+        HomeRoot    = $HomeDir
+        StateRoot   = (Join-Path $HomeDir 'state')
+        SkipBuild   = $true
+    }
+    $retire = @()
+    for ($i = 0; $i -lt $Extra.Count; $i++) {
+        if ($Extra[$i] -eq '-Apply') { $invArgs['Apply'] = $true }
+        elseif ($Extra[$i] -eq '-Retire' -and ($i + 1) -lt $Extra.Count) { $retire += $Extra[++$i] }
+        else { throw "Unsupported Invoke-DeployInProcess argument: $($Extra[$i])" }
+    }
+    if ($retire.Count -gt 0) { $invArgs['Retire'] = $retire }
+    try {
+        $out = @(& $deploy @invArgs *>&1 | ForEach-Object { [string] $_ })
+        return [pscustomobject]@{ Code = 0; Out = ($out -join "`n") }
+    }
+    catch {
+        return [pscustomobject]@{ Code = 1; Out = $_.Exception.Message }
+    }
+}
 function Get-LiveRoots([string] $HomeDir) {
     @((Join-Path $HomeDir '.codex/skills'))
 }
@@ -176,7 +199,7 @@ catch { Write-Error $_ -ErrorAction Continue; exit 1 }
     Set-TestFile (Join-Path $invalidStateHome '.codex/skills/alpha/SKILL.md') 'live alpha'
     Set-TestFile (Join-Path $invalidStateHome '.codex/skills/stray/SKILL.md') 'live stray'
     $invalidStatePath = Join-Path $invalidStateHome 'state/deployed-skills.json'
-    foreach ($invalidState in @(
+    $invalidStates = @(
         '{"Environment":"test","Codex":"stray"}',
         '{"Environment":"test"}',
         '{"Environment":"test","Codex":["stray",5]}',
@@ -184,15 +207,19 @@ catch { Write-Error $_ -ErrorAction Continue; exit 1 }
         '[{"Environment":"test","Codex":["stray"]}]',
         '{"Environment":"test","Codex":["stray","bad/name"]}',
         '[]'
-    )) {
+    )
+    for ($i = 0; $i -lt $invalidStates.Count; $i++) {
+        $invalidState = $invalidStates[$i]
+        # Keep the first invalid-state case as a full child-pwsh subprocess run; run the rest in-process.
+        $invoke = if ($i -eq 0) { ${function:Invoke-Deploy} } else { ${function:Invoke-DeployInProcess} }
         Set-TestFile $invalidStatePath $invalidState
         $invalidStateHash = (Get-FileHash -LiteralPath $invalidStatePath).Hash
-        $r = Invoke-Deploy $repo $invalidStateHome
+        $r = & $invoke $repo $invalidStateHome
         Assert-TestCondition ($r.Code -ne 0 -and $r.Out -match 'deploy-state-invalid-state' -and $r.Out -notmatch '(?m)^\s*Codex\s+prune\s+') "a present invalid state plans no prune: $invalidState"
-        $r = Invoke-Deploy $repo $invalidStateHome @('-Apply')
+        $r = & $invoke $repo $invalidStateHome @('-Apply')
         Assert-TestCondition ($r.Code -ne 0 -and $r.Out -match 'deploy-state-invalid-state' -and (Get-FileHash -LiteralPath $invalidStatePath).Hash -eq $invalidStateHash) "a present invalid state blocks Apply without rewriting state: $invalidState"
         Assert-TestCondition ((Get-Content -Raw (Join-Path $invalidStateHome '.codex/skills/stray/SKILL.md')) -eq 'live stray' -and -not (Test-Path (Join-Path $invalidStateHome 'state/skill-backups')) -and -not (Test-Path (Join-Path $invalidStateHome '.codex/skills/beta'))) "a present invalid state authorizes no live write: $invalidState"
-        $r = Invoke-Deploy $repo $invalidStateHome @('-Retire', 'stray')
+        $r = & $invoke $repo $invalidStateHome @('-Retire', 'stray')
         Assert-TestCondition ($r.Code -ne 0 -and $r.Out -match 'deploy-state-invalid-state' -and (Test-Path (Join-Path $invalidStateHome '.codex/skills/stray/SKILL.md'))) "an invalid state cannot authorize even an explicit retire: $invalidState"
     }
     $unreadableStateHome = Join-Path $work 'unreadable-state-home'
