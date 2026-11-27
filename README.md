@@ -112,7 +112,7 @@ unknown 目录默认保留，不能据此认定是垃圾；恢复、退休旧 sk
 
 ## Antigravity 插件
 
-Antigravity 使用独立入口，`ai-agent-dotfiles` 的目标版本由 `harness-source/antigravity/plugins.psd1` 指定，包含 `git-review`、`multimodal-generation`、`systematic-debugging` 与 `verification-before-completion`：
+Antigravity 使用独立入口，`ai-agent-dotfiles` 的目标版本由 `harness-source/antigravity/plugins.psd1` 指定（当前 `0.5.0`），包含 9 个跨端共享技能：`brainstorming`、`git-review`、`meng-cmame-writing`、`multimodal-generation`、`paper-polish`、`session-learnings`、`systematic-debugging`、`verification-before-completion` 与 `writing-plans`（`tool-scope` 面向 Codex Desktop 订阅委派，保留在 `skills-source/shared/` 但不打入 Antigravity 插件）：
 
 ```powershell
 pwsh -NoProfile -File scripts/agent-dotfiles.ps1 antigravity build

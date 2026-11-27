@@ -1,4 +1,4 @@
-#requires -Version 7.0
+﻿#requires -Version 7.0
 
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
@@ -227,5 +227,39 @@ Assert-TestCondition (-not (Read-RepoText 'scripts/deploy.ps1').Contains('mcp-sy
 . (Join-Path $RepoRoot 'scripts/mcp-sync.ps1')
 $mcpRegistry = Read-McpServerRegistry -RepoRoot $RepoRoot
 Assert-TestCondition (@($mcpRegistry.Servers | Where-Object { $_.Name -ceq 'blender' -and $_.Command -ceq 'uvx' }).Count -eq 1) 'harness-source/mcp/servers.psd1 passes schema validation and declares blender'
+
+# -----------------------------------------------------------------------------
+# Dual-host AGENTS.md shared-core parity and Antigravity plugin skills
+# -----------------------------------------------------------------------------
+Write-Host '[dual-host AGENTS.md parity and Antigravity plugin skills]'
+$codexAgentsText = Read-RepoText 'codex/AGENTS.md'
+$antigravityAgentsText = Read-RepoText 'antigravity/AGENTS.md'
+$sharedAgentsMarkers = @(
+    '## 编码与验证',
+    '## 执行与沟通',
+    '## 修改、验证与提交',
+    '## 工作区与安全',
+    '停止条件',
+    '小步提交',
+    '密钥与凭据永不入库',
+    '严禁静默降级'
+)
+foreach ($marker in $sharedAgentsMarkers) {
+    Assert-TestCondition ($codexAgentsText.Contains($marker)) "codex/AGENTS.md contains shared guardrail '$marker'"
+    Assert-TestCondition ($antigravityAgentsText.Contains($marker)) "antigravity/AGENTS.md contains shared guardrail '$marker'"
+}
+
+$pluginsData = Import-PowerShellDataFile -LiteralPath (Join-Path $RepoRoot 'harness-source/antigravity/plugins.psd1')
+Assert-TestCondition ($pluginsData.ContainsKey('ManagedPlugin') -and ($pluginsData.ManagedPlugin -is [hashtable])) 'plugins.psd1 declares ManagedPlugin hashtable'
+$rawPluginSkills = $pluginsData.ManagedPlugin.Skills
+Assert-TestCondition ($rawPluginSkills -is [array]) 'plugins.psd1 declares ManagedPlugin.Skills as an array'
+$pluginSkills = @($rawPluginSkills | ForEach-Object { [string] $_ })
+Assert-TestCondition (($pluginSkills.Count -ge 1) -and (@($pluginSkills | Where-Object { [string]::IsNullOrWhiteSpace($_) }).Count -eq 0)) 'plugins.psd1 ManagedPlugin.Skills has non-empty entries'
+$seenPluginSkills = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::OrdinalIgnoreCase)
+$duplicatePluginSkills = @($pluginSkills | Where-Object { -not $seenPluginSkills.Add($_) })
+Assert-TestCondition ($duplicatePluginSkills.Count -eq 0) 'plugins.psd1 ManagedPlugin.Skills has zero duplicates'
+foreach ($pluginSkill in $pluginSkills) {
+    Assert-TestCondition (Test-Path -LiteralPath (Join-Path $RepoRoot "skills-source/shared/$pluginSkill/SKILL.md") -PathType Leaf) "plugins.psd1 ManagedPlugin skill '$pluginSkill' exists under skills-source/shared/"
+}
 
 Write-Host 'repository policy tests: PASS'

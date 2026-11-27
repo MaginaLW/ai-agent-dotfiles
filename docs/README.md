@@ -2,6 +2,13 @@
 
 日常工作环境是 Codex；Antigravity 另有插件与全局规则。操作权限见 [AGENTS.md](../AGENTS.md)。首次安装见[新电脑接入](ONBOARD_NEW_MACHINE.md)，配置排查见 [Codex 本机指南](CODEX_TUNING.md)，当前进展见 [STATUS.md](../STATUS.md)。
 
+## 目录
+
+- **基础与日常同步：** [1. 项目目的](#1-项目目的) · [2. 当前管理范围](#2-当前管理范围) · [3. 目录说明](#3-目录说明) · [4. 日常同步流程](#4-日常同步流程)（[部署后复核](#部署后的只读复核)）
+- **Skills 与维护：** [5. 修改已有 skill](#5-修改已有-skill-的流程) · [6. 新增 skill](#6-新增-skill-的流程) · [7. Codex `.system`](#7-codex-system-规则) · [8. 备份与恢复](#8-备份与恢复) · [9. 常见问题](#9-常见问题) · [10. 检查与 CI](#10-检查与-ci)
+- **配置、环境与工具：** [11. Harness 配置同步](#11-harness-配置同步config-sync) · [12. Project Harness Profiles](#12-project-harness-profiles) · [13. Harness Environments](#13-harness-environments) · [14. 统一 CLI](#14-统一-cli)
+- **Antigravity、MCP 与监控台：** [15. Antigravity 插件](#15-antigravity-插件) · [16. 受管 MCP 分发](#16-受管-mcp-分发mcp-sync) · [17. 本地可视化监控台](#17-本地可视化监控台dashboard)
+
 ## 1. 项目目的
 
 跨项目偏好写入各宿主的全局文件。某个仓库特有的构建命令、验收条件和批准范围写进该项目入口。Antigravity 的受管全局路径适用于 App 和 CLI。各宿主加载行为见 [Codex](https://learn.chatgpt.com/docs/agent-configuration/agents-md) 和 [Antigravity](https://antigravity.google/docs/rules/)。
@@ -40,7 +47,7 @@
 | `tools/gitleaks/` | pinned gitleaks 的版本、下载地址与校验锁 |
 | `.gitleaks.toml` | 仓库秘密扫描规则 |
 | `scripts/` | build、scan、deploy（§4）、promote（§6）、config（§11）、profile（§12）、测试与校验入口（§10）、只读 `doctor.ps1`、统一 CLI（§14） |
-| `dashboard/` | 本地中文可视化监控台源码（`server.py` 与 `index.html`，纯 Python 标准库，仅监听 `127.0.0.1`，§17） |
+| `dashboard/` | 本地中文可视化监控台源码（`server.py`、`lib/` 模块、`index.html` 与 `static/` 静态资源，纯 Python 标准库，仅监听 `127.0.0.1`，§17） |
 | `start-dashboard.cmd` | Windows 一键双击启动入口（纯 ASCII + CRLF），转调 `scripts/dashboard.ps1` 打开本地中文监控台（§17） |
 
 `scripts/pinned-tool.ps1` 从调用方传入的 `-LockPath` 读取工具锁文件；gitleaks 的锁路径由
@@ -69,7 +76,7 @@ config 或部署状态；skills 预检完成的 build/scan 在紧接的 skills A
   install/update/prune 时，先备份该操作的两个残留路径再清理；其他残留只报告，不自动清理。
   合法名称可能使一个 skill 的暂存路径与另一个 skill 的旧目录路径重合，所以不能仅凭名称判断其归属。
 - `update` 和 `prune` 前先备份旧目录（§8）。
-- 逐项计划后显示各操作的数量汇总；汇总不能代替逐项审查。
+- 逐项计划后显示各操作的数量汇总；汇总不能代替逐项审查。仅在预览模式（未传 `-Apply`）时支持 `-Json`，抑制控制台文本并向 stdout 输出 `SchemaVersion = 1` 的结构化计划（含 `Mode`、`Environment`、`LiveRoot`、`Summary`、`Items`、`UnrecordedUpdates`、`InterruptedRemnants`，不含本机 `HomeRoot`/`StateRoot` 绝对路径）；`-Json` 与 `-Apply` 同时传入会报错停止。
 - 显示上次记录的环境 → 本次目标环境（记录不证明 live 内容）；prune 区分“此前受管、本次未选中”
   和显式 `-Retire`。install/update 复用现有文件哈希比较，列出相对文件名的 add/change/remove，
   不打印文件内容或哈希。文件名本身也可能包含私有信息，分享输出前仍需审查。
@@ -244,11 +251,13 @@ File -> New Window / 文件 → 新窗口或重启以重新加载），而 `$tea
 
 ```powershell
 pwsh -NoProfile -File scripts/run-tests.ps1
+pwsh -NoProfile -File scripts/run-tests.ps1 -MaxParallel 2
+pwsh -NoProfile -File scripts/run-tests.ps1 -Suite repository-policy
 ```
 
-它打印汇总，任一套件失败或超时即以 1 退出；每个套件的时间预算在 `tests/test-timeouts.psd1`。
+它按 `tests/test-timeouts.psd1` 预算从长到短（LPT）并发调度测试套件，默认 `-MaxParallel` 为 `min(4, max(1, CPU 核数))`（有效范围 `1..32`，指定 `-Suite` 时自动以 `1` 串行运行）；每个套件缓冲独立输出并在结束后整块打印以避免并发日志交错，超时后终止进程树并执行 `config-sync` 清理契约，任一套件失败或超时即以 1 退出。
 CI 同款的全量验证入口是 `scripts/run-repository-validation.ps1`（PowerShell 与 Python 语法、gitleaks 校验、build、秘密扫描、
-doctor、manifest 一致性、全部测试套件、危险文件检查与干净树，逐 gate 顺序执行）。
+doctor、manifest 一致性、全部测试套件、危险文件检查与干净树，逐 gate 执行；GitHub Actions 使用 `actions/cache@v4` 按 `tools/gitleaks/gitleaks.lock.json` 缓存固定版本 gitleaks，仍通过 `install-gitleaks.ps1` 执行压缩包与可执行文件双重 SHA-256 校验）。
 
 config-sync 测试的 repo/home/backup fixtures 位于忽略的 `tmp/tests/config-sync/<run-id>/`。
 正常失败会先在 `receipts/` 保存小型记录再清理；超时或跳过 finalization 的子进程保留其所属目录。
@@ -271,7 +280,7 @@ ExcludedItems，以及所有平台都不捕获的 `CommonExcludedItems`：密钥
 - `config-status.ps1`：只读 drift 报告（repo ↔ home），逐项报告 in-sync / differs / repo-only / home-only，遵守 ExcludedItems。
   Codex 与 Antigravity `AGENTS.md` 均比较受管 block；缺少 block 时报告 `managed block missing`，不能按整文件相同视为已同步。
   `-Json` 输出文件级状态数组。
-- `config-pull.ps1`：repo → home。默认 dry-run；`-Apply` 先扫密、逐文件备份被覆盖项再写入。
+- `config-pull.ps1`：repo → home。默认 dry-run（仅预览模式支持 `-Json`，抑制控制台文本并输出 `SchemaVersion = 1` 的结构化计划，含 `Platforms`、`Summary`、`Items`，不含 `HomeRoot` 或文件内容，禁止与 `-Apply` 同用）；`-Apply` 先扫密、逐文件备份被覆盖项再写入。
   Codex 与 Antigravity `AGENTS.md` 分别只更新 `<!-- BEGIN AI-AGENT-DOTFILES: codex/AGENTS.md -->` /
   `<!-- BEGIN AI-AGENT-DOTFILES: antigravity/AGENTS.md -->` 对应的受管 block，block 外的个人文本保留。
   已有文件没有 block 时，仅当内容已等于 repo 才自动包裹；否则 fail closed，要求先手工放置 block。
@@ -409,7 +418,7 @@ pwsh -NoProfile -File scripts/deploy-skills.ps1 -Environment full
 
 ```text
 help                         显示用法
-status                       -> 统一只读状态汇总（环境、config、antigravity、mcp）[-Json]
+status                       -> 统一只读状态汇总（环境、Codex Live Skills、config、antigravity、mcp）[-Json]
 dashboard                    -> scripts/dashboard.ps1（启动或复用本地中文监控台）
 doctor                       -> scripts/doctor.ps1
 build                        -> scripts/build-skills.ps1
@@ -437,14 +446,12 @@ Codex 的两个 live 根同时存在时会阻塞部署。对于缺少平台根�
 `profile apply`、`skills promote`、`antigravity deploy`、`mcp deploy`）要求显式 `-DryRun` 或 `-Apply`，统一入口不会自动补 `-Apply`。
 `sync` 与 `env deploy` 都串行执行 skills 和 config；两阶段不原子。直接运行低层脚本可只执行单个阶段。
 
-顶层 `status` 命令支持 `-Json` 原生输出结构化对象；底层命令支持 `-Json` 时可直接透传，例如 `profile status -ProjectRoot <project> -Json` 或 `mcp status -Json`；统一 CLI
-会抑制自己的调用提示和结果提示，让 stdout 保持底层 JSON。`env list` 使用上面的 `-JsonPath`，不支持 `-Json`。
+顶层 `status` 命令并发拉取 `config-status.ps1`、`antigravity-plugins.ps1`、`mcp-sync.ps1` 及（在已记录环境且本地构建存在时）`deploy-skills.ps1 -Environment <recorded> -SkipBuild -Json`，在文本输出中呈现 `[Codex Live Skills]` 摘要，在 `-Json` 中输出顶层 `Skills`（`State` 为 `checked` / `build-required` / `unavailable` / `error`）与 `Summary.Skills`。当已记录环境为 `unavailable` 或尚未生成 `codex/skills/` 时，仅标为 `unavailable` / `build-required` 而不触发非零退出码；遇到双 live 根冲突、重解析点或文件占坑等真实 live 根异常时才置为 `error` 并返回非零。底层命令支持 `-Json` 时也可直接透传（如 `profile status -ProjectRoot <project> -Json`、`mcp status -Json`、`deploy-skills.ps1 -Environment work -Json`、`config-pull.ps1 -Platform Antigravity -Json`），统一 CLI 会抑制自己的调用提示和结果提示，让 stdout 保持底层 JSON。`env list` 使用上面的 `-JsonPath`，不支持 `-Json`。
 
 
 ## 15. Antigravity 插件
 
-受管插件 `ai-agent-dotfiles` 包含 canonical `skills-source/shared/` 中的
-`git-review`、`multimodal-generation`、`systematic-debugging` 和 `verification-before-completion` 及其附属文件。选择与元数据来自
+受管插件 `ai-agent-dotfiles`（目标版本 `0.5.0`）包含 canonical `skills-source/shared/` 中的 9 个跨端共享技能：`brainstorming`、`git-review`、`meng-cmame-writing`、`multimodal-generation`、`paper-polish`、`session-learnings`、`systematic-debugging`、`verification-before-completion` 和 `writing-plans` 及其附属文件（`tool-scope` 面向 Codex Desktop 订阅委派，保留在 `skills-source/shared/` 但不打包进本插件）。选择与元数据来自
 `harness-source/antigravity/plugins.psd1`；`ExternalPlugins` 现声明 `unity`（`Source = 'antigravity-plugins-partners'`、`Version = 'ANY'`、`Enabled = $true`）。第三方来源、版本和启用状态在 `status` 与 `deploy -DryRun` 中对比报告（`unchanged` / `missing` / `different` / `blocked` / `UNKNOWN`）。仅当明确传入 `-ExternalPlugin <name>` 并经 `-DryRun` 审阅及单独授权后，`deploy -Apply` 才对 `missing` 的 marketplace 项调用一次 `agy plugin install <name>@<source>`；默认 `deploy -Apply` 不触碰第三方插件，已安装、漂移或未登记同名目录均保持只读阻塞（不自动重装或卸载）。
 本入口不打包 rules、MCP、hooks 或 agents。
 
@@ -517,7 +524,7 @@ CLI 新进程不传 `--continue` 或 `--conversation` 时为独立会话。显�
 
 `harness-source/mcp/servers.psd1`（`SchemaVersion = 1`、`Servers`）声明跨 **Antigravity、Codex** 双端投影的受管 MCP server（当前声明 `blender`），严禁写入明文密钥、Token、回车换行或本机盘符/UNC 路径：
 
-- **支持的传输与字段**：`stdio`（`Command`、`Args`、`Env`）与 `streamable-http`（`Url`、可选 `BearerTokenEnvVar`、`Headers`），并带 `Name`、`Enabled`、`Platforms`。
+- **支持的传输与字段**：`stdio`（`Command`、`Args`、`Env`）与 `streamable-http`（`Url`、可选 `BearerTokenEnvVar`、`Headers`），并带 `Name`、`Enabled`、`Platforms` 与可选 `EnabledPolicy`（`'enforce'` 默认强制启用态同步，或 `'preserve-disabled'`）。当 `Enabled = $true` 且 `EnabledPolicy = 'preserve-disabled'`（当前 `blender` 采用此策略）时，若 Codex 本机已存在条目且仅 `enabled = false` 而命令、参数、环境变量等其余字段一致，规划器记为 `unchanged`（原因 `managed-entry-match-local-disabled`）；一旦发生命令或环境漂移仍报 `update`。未知 `EnabledPolicy` 值会在读取阶段被拒绝。
 - **凭据与平台约束**：注册表读取阶段要求 `Env` 中敏感键名（`api_key` / `token` / `secret` / `password` / `passwd` / `credential`）必须写成 `${ENV_VAR}` 占位符，而 `Codex` 投影器目前不支持 `${...}` 环境变量模板展开；遇到不兼容项、重复键、非法 JSON 或缺失 `codex` CLI 时，规划器 fail closed 报告 `blocked`，不会猜测或写入。
 
 ```powershell
@@ -548,7 +555,7 @@ pwsh -NoProfile -File scripts/agent-dotfiles.ps1 mcp deploy -Apply
 
 ## 17. 本地可视化监控台（dashboard）
 
-`scripts/dashboard.ps1`（或根目录双击 `start-dashboard.cmd`）启动或复用一个仅面向本机的中文 Web 监控与交互控制台（`dashboard/server.py` + `dashboard/index.html`，纯 Python 3.11+ 标准库实现，无外部 CDN/npm 依赖）。`start-dashboard.cmd` 采用纯 ASCII + Windows CRLF 换行（由 `.gitattributes` 锁定），也可在桌面创建快捷方式并设置为最小化窗口启动，需要停止本地服务时直接关闭任务栏中的对应窗口即可。
+`scripts/dashboard.ps1`（或根目录双击 `start-dashboard.cmd`）启动或复用一个仅面向本机的中文 Web 监控与交互控制台。后端拆分为入口 `dashboard/server.py` 与 `dashboard/lib/` 模块（`security.py`、`collectors.py`、`sync_preview.py`、`jobs.py`），前端为 `dashboard/index.html` + `dashboard/static/app.css` + `dashboard/static/app.js`（纯 Python 3.11+ 标准库与原生 Web 技术，无外部 CDN/npm 依赖；`/static/` 仅按精确白名单放行并执行重解析点与 `nosniff` 校验）。`start-dashboard.cmd` 采用纯 ASCII + Windows CRLF 换行（由 `.gitattributes` 锁定），也可在桌面创建快捷方式并设置为最小化窗口启动，需要停止本地服务时直接关闭任务栏中的对应窗口即可。
 
 ```powershell
 # 直接启动并自动打开浏览器（若同仓库实例已健康运行则复用）
@@ -564,12 +571,12 @@ pwsh -NoProfile -File scripts/agent-dotfiles.ps1 dashboard -Check
 主要功能：
 
 - **开发进展监控**：按中文分类汇总当前工作区改动与按需 Diff、读取 `STATUS.md` 待办与 `status/active/` 进行中任务、展示近期提交与 GitHub PR / CI（离线时优雅降级），并自动探测或手动加入 Swarm / Teamwork 协作看板。
-- **双端资产与状态总览**：汇总 Codex 环境记录、Codex 与 Antigravity 受管 `AGENTS.md`、Antigravity 自研与第三方插件、受管 MCP 分发状态，并提供可搜索技能浏览器（点击查看脱敏后的 `SKILL.md`）。
-- **安全体检与排障指令复制**：支持只读/本地构建类操作（`doctor`、`scan`、`build`、`antigravity build`、单项或全量测试），支持一键复制脱敏后的 AI 解释、复核提交或报错排查指令；所有运行中操作受全局单执行锁保护（并发请求返回 HTTP 409）。
+- **双端资产与状态总览**：汇总 Codex 环境记录、Codex Live Skills 漂移（`sync.skills`：`10/10 一致` / `待同步` / `需先构建`）、Codex 与 Antigravity 受管 `AGENTS.md`、Antigravity 自研与第三方插件、受管 MCP 分发状态，并提供按目录 mtime 缓存的可搜索技能浏览器（点击查看脱敏后的 `SKILL.md`）。前端轮询在页面隐藏（`visibilityState === "hidden"`）时暂停并在切回可见时立即刷新，按区块指纹跳过未变化 DOM 的重绘。
+- **实时流式日志、安全取消与排障指令复制**：支持只读/本地构建类操作（`doctor`、`scan`、`build`、`antigravity build`、单项或并发全量测试），运行中任务通过增量流式管道实时输出日志到 `GET /api/jobs/<id>` 详情抽屉，并支持一键复制脱敏后的 AI 解释、复核提交或报错排查指令；所有运行中操作受全局单执行锁保护（并发请求返回 HTTP 409）。仅限运行中的只读/测试/预览任务（`action:*`、`preview:*`）可调用 `POST /api/jobs/<id>/cancel`（UI 显示“停止任务”）终止整棵子进程树并标记为 `cancelled`；写入类任务（`apply:*`）严格返回 HTTP `403` 禁止中途取消，以防本机状态半写。
 
 安全边界与写入门禁：
 
-- **仅限本机回环与 CSRF 防护**：服务端仅绑定 `127.0.0.1`（拒绝非回环主机），运行时状态 `server.json` 仅写入仓库下忽略的 `tmp/dashboard/`（拒绝符号链接/重解析点）。每次启动生成随机会话 Token（`X-Dashboard-Token`），所有 `POST` 请求必须同时通过 Token、`Host` 与 `Origin` 校验（不匹配返回 HTTP 403），前端严格禁止使用 `innerHTML` 插入非信任文本，API 响应与复制指令均对用户主目录与仓库绝对路径做脱敏处理。
-- **强制先预览后确认（DryRun -> Apply）**：所有写入本机的同步按钮（Codex 完整/仅技能同步、Antigravity 全局规则/插件部署、受管 MCP 同步）只能先触发 `-DryRun` 预览。预览成功后生成绑定当前 `git HEAD` 与受管工作区源码指纹、300 秒有效且原子单次消费的 `preview_id`；若出现 `blocked`、需重建插件包、当前已全部同步无变更或提交记录/受管源码指纹发生变化，Apply 按钮保持禁用或被后端拒绝。只有在预览无阻塞、存在待变更项且人工勾选确认框后，才允许执行对应的 `-Apply`，完成后自动刷新状态读回。
+- **仅限本机回环与 CSRF 防护**：服务端仅绑定 `127.0.0.1`（拒绝非回环主机），运行时状态 `server.json` 仅写入仓库下忽略的 `tmp/dashboard/`（拒绝符号链接/重解析点）。每次启动生成随机会话 Token（`X-Dashboard-Token`），所有 `POST` 请求必须同时通过 Token、`Host` 与 `Origin` 校验（不匹配返回 HTTP 403），前端所有文件严格禁止使用 `innerHTML` / `outerHTML` 插入非信任文本，API 响应与复制指令均对用户主目录与仓库绝对路径做脱敏处理。
+- **强制先预览后确认（DryRun -> Apply）**：所有写入本机的同步按钮（Codex 完整/仅技能同步、Antigravity 全局规则/插件部署、受管 MCP 同步）只能先触发 `-DryRun` 预览（其中 `codex-skills`、`antigravity-config` 与 `mcp` 消费结构化 `-Json` 输出）。预览成功后生成绑定当前 `git HEAD` 与受管工作区源码指纹、300 秒有效且原子单次消费的 `preview_id`；若出现 `blocked`、需重建插件包、当前已全部同步无变更或提交记录/受管源码指纹发生变化，Apply 按钮保持禁用或被后端拒绝。只有在预览无阻塞、存在待变更项且人工勾选确认框后，才允许执行对应的 `-Apply`，完成后自动刷新状态读回。
 - **高风险操作边界**：Git 提交/推送、`config push`（本机回抓）与 `-Retire`（删除旧技能）不提供面板一键写入，仍须在 AI 对话中审查后执行。
 - 回归测试：`pwsh -NoProfile -File scripts/run-tests.ps1 -Suite dashboard`（或直接运行 `pwsh -NoProfile -File tests/dashboard.tests.ps1`）会同时执行 `tests/dashboard_server_test.py` 单元测试与隔离 PowerShell 集成测试。
