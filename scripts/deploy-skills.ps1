@@ -24,16 +24,22 @@ param(
     [string] $RepoRoot = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path,
     [string] $HomeRoot = [Environment]::GetFolderPath('UserProfile'),
     [string] $StateRoot = (Join-Path ([Environment]::GetFolderPath('LocalApplicationData')) 'ai-agent-dotfiles.deploy'),
-    [switch] $SkipBuild
+    [switch] $SkipBuild,
+    [switch] $Json
 )
 
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 . (Join-Path $PSScriptRoot 'repo-common.ps1')
 
+if ($Json -and $Apply) {
+    throw '-Json cannot be combined with -Apply.'
+}
+
 $platforms = @('Codex')
 $statePath = Join-Path $StateRoot 'deployed-skills.json'
 $backupRoot = Join-Path $StateRoot ('skill-backups\' + (Get-Date).ToUniversalTime().ToString('yyyyMMdd-HHmmss-fff') + '-' + [guid]::NewGuid().ToString('N').Substring(0, 6))
+$script:CodexLiveRootLabel = '~/.codex/skills'
 
 function Get-DeploySkillsLiveRoot([string] $Platform) {
     switch ($Platform) {
@@ -42,8 +48,11 @@ function Get-DeploySkillsLiveRoot([string] $Platform) {
             Assert-PlainPathNoReparse -Path (Join-Path $HomeRoot '.agents\skills') -AllowMissing
             $roots = Get-CodexLiveSkillRoots -HomeRoot $HomeRoot
             if ($roots.Ambiguous) { throw "codex-live-root-ambiguous: both $($roots.Preferred) and $($roots.Fallback) exist" }
-            if ($roots.FallbackExists) { Write-Host 'Codex live root: ~/.agents/skills (fallback; ~/.codex/skills is absent)' }
-            else { Write-Host 'Codex live root: ~/.codex/skills' }
+            $script:CodexLiveRootLabel = if ($roots.FallbackExists) { '~/.agents/skills' } else { '~/.codex/skills' }
+            if (-not $Json) {
+                if ($roots.FallbackExists) { Write-Host 'Codex live root: ~/.agents/skills (fallback; ~/.codex/skills is absent)' }
+                else { Write-Host 'Codex live root: ~/.codex/skills' }
+            }
             return $roots.Selected
         }
     }
@@ -131,10 +140,18 @@ switch ($stateRecord.Reason) {
 }
 
 if (-not $SkipBuild) {
-    & pwsh -NoProfile -File (Join-Path $RepoRoot 'scripts\build-skills.ps1') -RepoRoot $RepoRoot
-    if ($LASTEXITCODE -ne 0) { throw "build-skills failed with exit code $LASTEXITCODE" }
-    & pwsh -NoProfile -File (Join-Path $RepoRoot 'scripts\scan-secrets.ps1') -RepoRoot $RepoRoot
-    if ($LASTEXITCODE -ne 0) { throw "scan-secrets failed with exit code $LASTEXITCODE" }
+    if ($Json) {
+        $null = & pwsh -NoProfile -File (Join-Path $RepoRoot 'scripts\build-skills.ps1') -RepoRoot $RepoRoot *>&1
+        if ($LASTEXITCODE -ne 0) { throw "build-skills failed with exit code $LASTEXITCODE" }
+        $null = & pwsh -NoProfile -File (Join-Path $RepoRoot 'scripts\scan-secrets.ps1') -RepoRoot $RepoRoot *>&1
+        if ($LASTEXITCODE -ne 0) { throw "scan-secrets failed with exit code $LASTEXITCODE" }
+    }
+    else {
+        & pwsh -NoProfile -File (Join-Path $RepoRoot 'scripts\build-skills.ps1') -RepoRoot $RepoRoot
+        if ($LASTEXITCODE -ne 0) { throw "build-skills failed with exit code $LASTEXITCODE" }
+        & pwsh -NoProfile -File (Join-Path $RepoRoot 'scripts\scan-secrets.ps1') -RepoRoot $RepoRoot
+        if ($LASTEXITCODE -ne 0) { throw "scan-secrets failed with exit code $LASTEXITCODE" }
+    }
 }
 
 $state = $stateRecord.Ownership
@@ -182,6 +199,52 @@ $plan = foreach ($platform in $platforms) {
         $reason = if ($name -in $Retire) { 'explicit -Retire' } else { 'previously managed; not selected in target environment' }
         [pscustomobject]@{ Platform = $platform; Action = $action; Name = $name; Source = $null; Target = (Join-Path $liveRoot $name); Reason = $reason }
     }
+}
+
+if ($Json) {
+    $summaryCounts = [ordered]@{ install = 0; update = 0; unchanged = 0; prune = 0; unknown = 0 }
+    $sortedPlan = @($plan | Where-Object { $null -ne $_ } | Sort-Object Platform, Action, Name)
+    $jsonItems = [System.Collections.Generic.List[object]]::new()
+    foreach ($step in $sortedPlan) {
+        if ($summaryCounts.Contains($step.Action)) {
+            $summaryCounts[$step.Action]++
+        }
+        $reason = if ($step.PSObject.Properties['Reason']) { $step.Reason } else { $null }
+        $changes = @()
+        if ($step.PSObject.Properties['FileChanges'] -and $null -ne $step.FileChanges) {
+            $changes = @($step.FileChanges | ForEach-Object {
+                [ordered]@{ Action = [string]$_.Action; Path = [string]$_.Path }
+            })
+        }
+        $jsonItems.Add([ordered]@{
+            Platform        = [string] $step.Platform
+            Name            = [string] $step.Name
+            Action          = [string] $step.Action
+            Reason          = $reason
+            RecordedInState = [bool]($step.Name -in @($state[$step.Platform]))
+            FileChanges     = $changes
+        })
+    }
+    $unrecordedUpdates = @($sortedPlan | Where-Object { $_.Action -eq 'update' -and ($_.Name -notin @($state[$_.Platform])) } | ForEach-Object { "$($_.Platform)/$($_.Name)" })
+    $remnants = @($interrupted | ForEach-Object {
+        [ordered]@{
+            Platform = [string] $_.Platform
+            Name     = [string] (Split-Path -Leaf $_.Path)
+        }
+    })
+    $jsonReport = [ordered]@{
+        SchemaVersion       = 1
+        Mode                = 'dry-run'
+        Environment         = [string] $Environment
+        PreviousEnvironment = [string] $previousEnvironment
+        LiveRoot            = [string] $script:CodexLiveRootLabel
+        Summary             = $summaryCounts
+        Items               = $jsonItems.ToArray()
+        UnrecordedUpdates   = $unrecordedUpdates
+        InterruptedRemnants = $remnants
+    }
+    ConvertTo-Json -InputObject $jsonReport -Depth 10
+    return
 }
 
 Write-Host "Environment: last recorded '$previousEnvironment' -> target '$Environment' (record only; live contents may differ)."

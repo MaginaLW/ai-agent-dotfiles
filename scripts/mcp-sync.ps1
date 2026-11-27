@@ -119,7 +119,7 @@ function Read-McpServerRegistry {
     if ($null -eq $data.Servers) {
         throw 'MCP registry Servers must be an array.'
     }
-    $allowedServerKeys = @('Name', 'Transport', 'Enabled', 'Platforms', 'Command', 'Args', 'Env', 'Url', 'BearerTokenEnvVar', 'Headers')
+    $allowedServerKeys = @('Name', 'Transport', 'Enabled', 'EnabledPolicy', 'Platforms', 'Command', 'Args', 'Env', 'Url', 'BearerTokenEnvVar', 'Headers')
     $validPlatforms = @('Antigravity', 'Codex')
     $seenNames = [System.Collections.Generic.HashSet[string]]::new([StringComparer]::Ordinal)
     $servers = [System.Collections.Generic.List[object]]::new()
@@ -152,6 +152,13 @@ function Read-McpServerRegistry {
         if ($entry.Enabled -isnot [bool]) {
             throw "MCP server '$name' Enabled must be a boolean."
         }
+        $enabledPolicy = 'enforce'
+        if ($entry.ContainsKey('EnabledPolicy')) {
+            if ($entry.EnabledPolicy -isnot [string] -or $entry.EnabledPolicy -cnotin @('enforce', 'preserve-disabled')) {
+                throw "MCP server '$name' EnabledPolicy must be 'enforce' or 'preserve-disabled'."
+            }
+            $enabledPolicy = $entry.EnabledPolicy
+        }
         $platforms = @($entry.Platforms)
         if ($platforms.Count -eq 0) {
             throw "MCP server '$name' must specify at least one platform."
@@ -164,10 +171,11 @@ function Read-McpServerRegistry {
         }
 
         $normalized = [ordered]@{
-            Name      = $name
-            Transport = $transport
-            Enabled   = [bool]$entry.Enabled
-            Platforms = @($platforms)
+            Name          = $name
+            Transport     = $transport
+            Enabled       = [bool]$entry.Enabled
+            EnabledPolicy = $enabledPolicy
+            Platforms     = @($platforms)
         }
 
         if ($transport -ceq 'stdio') {
@@ -278,49 +286,33 @@ function Invoke-McpCodexCommand {
     }
     $target = $cmd[0]
     $codexHome = Join-Path $HomeRoot '.codex'
-    $info = $null
+    $filePath = $null
+    $procArgs = [System.Collections.Generic.List[string]]::new()
     if ($target.CommandType -eq 'ExternalScript') {
-        $pwshExe = @(Get-Command pwsh -CommandType Application -ErrorAction Stop)[0].Source
-        $info = [Diagnostics.ProcessStartInfo]::new($pwshExe)
-        $info.ArgumentList.Add('-NoProfile')
-        $info.ArgumentList.Add('-File')
-        $info.ArgumentList.Add($target.Source)
-        foreach ($arg in $Arguments) { $info.ArgumentList.Add($arg) }
+        $filePath = @(Get-Command pwsh -CommandType Application -ErrorAction Stop)[0].Source
+        $procArgs.Add('-NoProfile')
+        $procArgs.Add('-File')
+        $procArgs.Add($target.Source)
+        foreach ($arg in $Arguments) { $procArgs.Add($arg) }
     }
     elseif ($target.Source -match '\.(cmd|bat)$') {
-        $info = [Diagnostics.ProcessStartInfo]::new('cmd.exe')
-        $info.ArgumentList.Add('/d')
-        $info.ArgumentList.Add('/c')
-        $info.ArgumentList.Add($target.Source)
-        foreach ($arg in $Arguments) { $info.ArgumentList.Add($arg) }
+        $filePath = 'cmd.exe'
+        $procArgs.Add('/d')
+        $procArgs.Add('/c')
+        $procArgs.Add($target.Source)
+        foreach ($arg in $Arguments) { $procArgs.Add($arg) }
     }
     else {
-        $info = [Diagnostics.ProcessStartInfo]::new($target.Source)
-        foreach ($arg in $Arguments) { $info.ArgumentList.Add($arg) }
+        $filePath = $target.Source
+        foreach ($arg in $Arguments) { $procArgs.Add($arg) }
     }
-    $info.UseShellExecute = $false
-    $info.RedirectStandardInput = $true
-    $info.RedirectStandardOutput = $true
-    $info.RedirectStandardError = $true
-    $info.Environment['CODEX_HOME'] = $codexHome
-    $process = [Diagnostics.Process]::Start($info)
-    try {
-        $process.StandardInput.Close()
-        $stdout = $process.StandardOutput.ReadToEndAsync()
-        $stderr = $process.StandardError.ReadToEndAsync()
-        if (-not $process.WaitForExit(120000)) {
-            $process.Kill($true)
-            throw 'codex mcp command timed out after 120 seconds.'
-        }
-        $process.WaitForExit()
-        return @{
-            Available = $true
-            Code      = $process.ExitCode
-            Out       = $stdout.GetAwaiter().GetResult()
-            Error     = $stderr.GetAwaiter().GetResult()
-        }
+    $res = Invoke-BoundedProcess -FilePath $filePath -Arguments $procArgs.ToArray() -Environment @{ CODEX_HOME = $codexHome } -TimeoutSeconds 120 -TimeoutMessage 'codex mcp command timed out after 120 seconds.' -CloseStdIn
+    return @{
+        Available = $true
+        Code      = $res.ExitCode
+        Out       = $res.StdOut
+        Error     = $res.StdErr
     }
-    finally { $process.Dispose() }
 }
 
 function ConvertTo-McpOrderedObject {
@@ -923,7 +915,21 @@ function Get-McpPlan {
             }
             else {
                 $beforeCodex = ConvertFrom-McpCodexLiveEntry -Entry $matches[0]
-                if (($null -ne $beforeCodex) -and (Test-McpObjectJsonEqual -Left $beforeCodex -Right $codexSpec.Canonical)) {
+                $preserveLocalDisabled = $srv.Enabled -and ($srv.EnabledPolicy -ceq 'preserve-disabled') -and ($null -ne $beforeCodex) -and ($beforeCodex['enabled'] -eq $false)
+                $compareBefore = $beforeCodex
+                $compareExpected = $codexSpec.Canonical
+                if ($preserveLocalDisabled) {
+                    $compareBefore = [ordered]@{}
+                    foreach ($k in $beforeCodex.Keys) {
+                        if ($k -cne 'enabled') { $compareBefore[$k] = $beforeCodex[$k] }
+                    }
+                    $compareExpected = [ordered]@{}
+                    foreach ($k in $codexSpec.Canonical.Keys) {
+                        if ($k -cne 'enabled') { $compareExpected[$k] = $codexSpec.Canonical[$k] }
+                    }
+                }
+                if (($null -ne $compareBefore) -and (Test-McpObjectJsonEqual -Left $compareBefore -Right $compareExpected)) {
+                    $matchReason = if ($preserveLocalDisabled) { 'managed-entry-match-local-disabled' } else { 'managed-entry-match' }
                     $items.Add([ordered]@{
                         Platform       = 'Codex'
                         Server         = $srv.Name
@@ -931,7 +937,7 @@ function Get-McpPlan {
                         TargetPath     = $codexPath
                         Action         = 'unchanged'
                         State          = 'unchanged'
-                        Reason         = 'managed-entry-match'
+                        Reason         = $matchReason
                         After          = $codexSpec.Canonical
                         Changes        = @()
                         UnmanagedCount = $codexUnmanaged
@@ -948,7 +954,7 @@ function Get-McpPlan {
                         State          = 'different'
                         Reason         = 'managed-entry-differs'
                         After          = $codexSpec.Canonical
-                        Changes        = @($(if ($null -ne $beforeCodex) { Get-McpObjectFieldDiffs -Before $beforeCodex -After $codexSpec.Canonical } else { @('~ /transport') }))
+                        Changes        = @($(if ($null -ne $compareBefore) { Get-McpObjectFieldDiffs -Before $compareBefore -After $compareExpected } else { @('~ /transport') }))
                         UnmanagedCount = $codexUnmanaged
                         NativeAction   = @($codexSpec.AddArgs)
                     })

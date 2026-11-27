@@ -10,6 +10,7 @@
             Args = @('mcp-for-blender')
             Env = @{ BLENDER_PORT = '9800' }
             Enabled = $true
+            EnabledPolicy = 'preserve-disabled'
             Platforms = @('Antigravity', 'Codex')
         }
     )

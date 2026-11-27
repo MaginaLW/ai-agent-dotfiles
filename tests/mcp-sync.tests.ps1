@@ -195,6 +195,11 @@ try {
     $deadTimeoutFix = New-McpFixture -Name 'dead-timeout' -ServersPsd1Content "@{ SchemaVersion = 1; Servers = @(@{ Name = 'x'; Transport = 'stdio'; Command = 'uvx'; Args = @('pkg'); TimeoutMs = 1000; Enabled = `$true; Platforms = @('Codex') }) }"
     Assert-McpThrows { Read-McpServerRegistry -RepoRoot $deadTimeoutFix.Repo } "Unsupported MCP server key 'TimeoutMs'" 'rejects removed TimeoutMs key in servers.psd1'
 
+    $badPolicyFix = New-McpFixture -Name 'bad-policy' -ServersPsd1Content "@{ SchemaVersion = 1; Servers = @(@{ Name = 'x'; Transport = 'stdio'; Command = 'uvx'; Args = @('pkg'); Enabled = `$true; EnabledPolicy = 'ignore'; Platforms = @('Codex') }) }"
+    Assert-McpThrows { Read-McpServerRegistry -RepoRoot $badPolicyFix.Repo } "EnabledPolicy must be 'enforce' or 'preserve-disabled'" 'rejects invalid EnabledPolicy in servers.psd1'
+
+    Assert-McpTest ($realRegistry.Servers[0].EnabledPolicy -ceq 'preserve-disabled') 'real servers.psd1 sets EnabledPolicy = preserve-disabled on blender'
+
     Write-Host 'mcp-sync: clean empty home status/dry-run and full Apply across Antigravity and Codex'
     $f1 = New-McpFixture -Name 'full-apply'
     $status1 = Get-McpPlan -RepoRoot $f1.Repo -HomeRoot $f1.Home
@@ -462,6 +467,32 @@ throw "Unexpected fake codex args: $joined"
     New-Item -ItemType Junction -Path (Join-Path $fAgJunc.Home '.gemini') -Target $juncTarget | Out-Null
     $agJuncPlan = Get-McpPlan -RepoRoot $fAgJunc.Repo -HomeRoot $fAgJunc.Home -Platform Antigravity
     Assert-McpTest ($agJuncPlan.Summary.blocked -eq 1 -and $agJuncPlan.Items[0].Reason -ceq 'reparse-point-blocked') 'Antigravity status blocks when ancestor .gemini is a junction'
+
+    Write-Host 'mcp-sync: EnabledPolicy enforce vs preserve-disabled'
+    $epEnforcePsd1 = "@{ SchemaVersion = 1; Servers = @(@{ Name = 'srv'; Transport = 'stdio'; Command = 'uvx'; Args = @('pkg'); Env = @{ PORT = '9800' }; Enabled = `$true; EnabledPolicy = 'enforce'; Platforms = @('Codex') }) }"
+    $epPreservePsd1 = "@{ SchemaVersion = 1; Servers = @(@{ Name = 'srv'; Transport = 'stdio'; Command = 'uvx'; Args = @('pkg'); Env = @{ PORT = '9800' }; Enabled = `$true; EnabledPolicy = 'preserve-disabled'; Platforms = @('Codex') }) }"
+
+    $fEnforce = New-McpFixture -Name 'ep-enforce' -ServersPsd1Content $epEnforcePsd1
+    Set-TestFile -Path (Join-Path $fEnforce.Home '.codex/config.toml') -Content "# fixture codex config`n"
+    $script:McpTestCodexEntries = @(
+        @{ name = 'srv'; enabled = $false; transport = @{ type = 'stdio'; command = 'uvx'; args = @('pkg'); env = @{ PORT = '9800' }; env_vars = @(); cwd = $null } }
+    )
+    $enforcePlan = Get-McpPlan -RepoRoot $fEnforce.Repo -HomeRoot $fEnforce.Home -Platform @('Codex')
+    Assert-McpTest ($enforcePlan.Items[0].Action -ceq 'update' -and $enforcePlan.Items[0].Reason -ceq 'managed-entry-differs' -and ($enforcePlan.Items[0].Changes -contains '~ /enabled')) 'EnabledPolicy = enforce detects local disabled as update (~ /enabled)'
+
+    $fPreserve = New-McpFixture -Name 'ep-preserve' -ServersPsd1Content $epPreservePsd1
+    Set-TestFile -Path (Join-Path $fPreserve.Home '.codex/config.toml') -Content "# fixture codex config`n"
+    $script:McpTestCodexEntries = @(
+        @{ name = 'srv'; enabled = $false; transport = @{ type = 'stdio'; command = 'uvx'; args = @('pkg'); env = @{ PORT = '9800' }; env_vars = @(); cwd = $null } }
+    )
+    $preserveMatchPlan = Get-McpPlan -RepoRoot $fPreserve.Repo -HomeRoot $fPreserve.Home -Platform @('Codex')
+    Assert-McpTest ($preserveMatchPlan.Items[0].Action -ceq 'unchanged' -and $preserveMatchPlan.Items[0].State -ceq 'unchanged' -and $preserveMatchPlan.Items[0].Reason -ceq 'managed-entry-match-local-disabled' -and $preserveMatchPlan.Items[0].Changes.Count -eq 0) 'EnabledPolicy = preserve-disabled classifies local disabled match as unchanged (managed-entry-match-local-disabled)'
+
+    $script:McpTestCodexEntries = @(
+        @{ name = 'srv'; enabled = $false; transport = @{ type = 'stdio'; command = 'uvx'; args = @('old-pkg'); env = @{ PORT = '9800' }; env_vars = @(); cwd = $null } }
+    )
+    $preserveDriftPlan = Get-McpPlan -RepoRoot $fPreserve.Repo -HomeRoot $fPreserve.Home -Platform @('Codex')
+    Assert-McpTest ($preserveDriftPlan.Items[0].Action -ceq 'update' -and $preserveDriftPlan.Items[0].State -ceq 'different' -and $preserveDriftPlan.Items[0].Reason -ceq 'managed-entry-differs' -and ($preserveDriftPlan.Items[0].Changes -contains '~ /args')) 'EnabledPolicy = preserve-disabled still detects real field drift as update'
 
     Write-Host "mcp-sync tests: PASS ($script:McpTestAssertions assertions)"
 }

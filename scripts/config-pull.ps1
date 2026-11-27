@@ -44,11 +44,16 @@ param(
     [string] $HomeRoot = $env:USERPROFILE,
     [string[]] $Platform = @('Codex'),
     [string] $BackupRoot = (Join-Path $env:USERPROFILE '.ai-agent-dotfiles-backups'),
-    [switch] $SkipSecretScan
+    [switch] $SkipSecretScan,
+    [switch] $Json
 )
 
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
+
+if ($Json -and $Apply) {
+    throw '-Json cannot be combined with -Apply.'
+}
 
 . (Join-Path $PSScriptRoot 'config-common.ps1')
 . (Join-Path $PSScriptRoot 'repo-common.ps1')
@@ -105,6 +110,31 @@ function Get-ConfigPullPlan {
 }
 
 $plan = Get-ConfigPullPlan
+
+if ($Json) {
+    $summary = [ordered]@{
+        add    = @($plan | Where-Object { $_.Action -eq 'add' }).Count
+        update = @($plan | Where-Object { $_.Action -eq 'update' }).Count
+    }
+    $items = [System.Collections.Generic.List[object]]::new()
+    foreach ($op in $plan) {
+        $items.Add([ordered]@{
+            Rel              = [string] $op.Rel
+            Action           = [string] $op.Action
+            Mode             = [string] $op.Mode
+            ManagedBlockOnly = ($op.Mode -eq 'content')
+        })
+    }
+    $report = [ordered]@{
+        SchemaVersion = 1
+        Mode          = 'dry-run'
+        Platforms     = @($Platform)
+        Summary       = $summary
+        Items         = $items.ToArray()
+    }
+    ConvertTo-Json -InputObject $report -Depth 10
+    return
+}
 
 Write-Host "config-pull (repo -> $HomeRoot)  scope: $($Platform -join ', ')" -ForegroundColor Cyan
 foreach ($managedLabel in @('Codex/AGENTS.md', 'Antigravity/AGENTS.md')) {

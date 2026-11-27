@@ -265,6 +265,78 @@ function Convert-ChildJson {
     }
 }
 
+function Invoke-StatusChildProcesses {
+    param(
+        [Parameter(Mandatory)] [string] $PwshPath,
+        [Parameter(Mandatory)] [object[]] $Specs,
+        [int] $TimeoutSeconds = 120
+    )
+
+    $results = @{}
+    $running = [System.Collections.Generic.List[object]]::new()
+    try {
+        foreach ($spec in $Specs) {
+            if (-not (Test-Path -LiteralPath $spec.ScriptPath -PathType Leaf)) {
+                $results[$spec.Key] = @{ Exists = $false; ExitCode = -1; StdOut = ''; StdErr = ''; TimedOut = $false }
+                continue
+            }
+            $info = [System.Diagnostics.ProcessStartInfo]::new($PwshPath)
+            $info.ArgumentList.Add('-NoProfile')
+            $info.ArgumentList.Add('-File')
+            $info.ArgumentList.Add([string] $spec.ScriptPath)
+            foreach ($arg in @($spec.Arguments)) {
+                $info.ArgumentList.Add([string] $arg)
+            }
+            $info.UseShellExecute = $false
+            $info.RedirectStandardInput = $true
+            $info.RedirectStandardOutput = $true
+            $info.RedirectStandardError = $true
+
+            $proc = [System.Diagnostics.Process]::Start($info)
+            if ($null -eq $proc) {
+                $results[$spec.Key] = @{ Exists = $true; ExitCode = -1; StdOut = ''; StdErr = "Failed to start $($spec.ScriptPath)"; TimedOut = $false }
+                continue
+            }
+            $proc.StandardInput.Close()
+            $running.Add([pscustomobject]@{
+                Key        = $spec.Key
+                Process    = $proc
+                StdOutTask = $proc.StandardOutput.ReadToEndAsync()
+                StdErrTask = $proc.StandardError.ReadToEndAsync()
+            })
+        }
+
+        $deadline = [DateTime]::UtcNow.AddSeconds($TimeoutSeconds)
+        foreach ($job in $running) {
+            $remainingMs = [int][Math]::Max(0, ($deadline - [DateTime]::UtcNow).TotalMilliseconds)
+            $exited = $job.Process.WaitForExit($remainingMs)
+            if (-not $exited) {
+                try { $job.Process.Kill($true) } catch { }
+                $null = $job.Process.WaitForExit(5000)
+                $outText = if ($job.StdOutTask.Wait(2000)) { $job.StdOutTask.GetAwaiter().GetResult() } else { '' }
+                $errText = if ($job.StdErrTask.Wait(2000)) { $job.StdErrTask.GetAwaiter().GetResult() } else { '' }
+                $results[$job.Key] = @{ Exists = $true; ExitCode = -1; StdOut = $outText; StdErr = $errText; TimedOut = $true }
+            }
+            else {
+                $job.Process.WaitForExit()
+                $results[$job.Key] = @{
+                    Exists   = $true
+                    ExitCode = $job.Process.ExitCode
+                    StdOut   = $job.StdOutTask.GetAwaiter().GetResult()
+                    StdErr   = $job.StdErrTask.GetAwaiter().GetResult()
+                    TimedOut = $false
+                }
+            }
+        }
+    }
+    finally {
+        foreach ($job in $running) {
+            if ($null -ne $job.Process) { $job.Process.Dispose() }
+        }
+    }
+    return $results
+}
+
 function Invoke-UnifiedStatus {
     param([object[]] $Arguments)
     $isJson = $false
@@ -320,84 +392,220 @@ function Invoke-UnifiedStatus {
     try { $envReport = Get-EnvironmentStatusReport -RepoRoot $repoRoot -StateRoot $stateRoot }
     catch {
         $envError = 'Could not read the environment definitions under harness-source/envs. Check -RepoRoot.'
-        $envReport = [ordered]@{ Recorded = 'unavailable'; StateReason = 'catalog-unavailable'; Available = @(); Failed = $true }
+        $envReport = [ordered]@{ Recorded = 'unavailable'; StateReason = 'catalog-unavailable'; Available = @(); Environments = @(); Failed = $true }
     }
 
-    # 2. Config status
-    $configStatusScript = Join-Path $PSScriptRoot 'config-status.ps1'
-    $configJson = $null
-    if (Test-Path -LiteralPath $configStatusScript -PathType Leaf) {
-        $configArgs = @('-Platform', 'Codex,Antigravity', '-Json')
-        if ($repoRoot) { $configArgs += @('-RepoRoot', $repoRoot) }
-        if ($seenParameters.Contains('-HomeRoot')) { $configArgs += @('-HomeRoot', $homeRoot) }
-        $configOut = & $pwshPath -NoProfile -File $configStatusScript @configArgs 2>&1
-        $configCode = $LASTEXITCODE
-        if ($configCode -eq 0) {
-            $configJson = Convert-ChildJson $configOut
-            if ($null -ne (Get-SafeProperty $configJson 'Status')) {
-                $configJson = @($configJson)
-            }
-            elseif ($configJson -isnot [array] -and $null -eq (Get-SafeProperty $configJson 'Error')) {
-                $configJson = [ordered]@{ Error = 'Expected a config status report.' }
-            }
+    # Determine Codex Live Skills eligibility before spawning parallel status children
+    $deploySkillsScript = Join-Path $PSScriptRoot 'deploy-skills.ps1'
+    $skillsPreState = 'eligible'
+    if ($envReport.Recorded -eq 'unavailable' -or (-not (Test-Path -LiteralPath $deploySkillsScript -PathType Leaf))) {
+        $skillsPreState = 'unavailable'
+    }
+    else {
+        $selectedEnvObj = @($envReport.Environments | Where-Object { $_.Name -eq $envReport.Recorded }) | Select-Object -First 1
+        if ($null -eq $selectedEnvObj -or $selectedEnvObj.Skills -isnot [hashtable] -or (-not $selectedEnvObj.Skills.ContainsKey('Codex'))) {
+            $skillsPreState = 'unavailable'
         }
         else {
-            $configJson = [ordered]@{ Error = "config-status.ps1 failed (exit $configCode)"; Raw = ($configOut -join "`n") }
+            $codexSkillsDir = Join-Path $repoRoot 'codex\skills'
+            if (-not (Test-Path -LiteralPath $codexSkillsDir -PathType Container)) {
+                $skillsPreState = 'build-required'
+            }
+            else {
+                foreach ($skillName in @($selectedEnvObj.Skills['Codex'] | Where-Object { $_ })) {
+                    if (-not (Test-Path -LiteralPath (Join-Path $codexSkillsDir $skillName) -PathType Container)) {
+                        $skillsPreState = 'build-required'
+                        break
+                    }
+                }
+            }
+        }
+    }
+
+    # Build child specs and run them concurrently
+    $childSpecs = [System.Collections.Generic.List[object]]::new()
+
+    $configStatusScript = Join-Path $PSScriptRoot 'config-status.ps1'
+    $configArgs = @('-Platform', 'Codex,Antigravity', '-Json')
+    if ($repoRoot) { $configArgs += @('-RepoRoot', $repoRoot) }
+    if ($seenParameters.Contains('-HomeRoot')) { $configArgs += @('-HomeRoot', $homeRoot) }
+    $childSpecs.Add([pscustomobject]@{ Key = 'Config'; ScriptPath = $configStatusScript; Arguments = $configArgs })
+
+    $agScript = Join-Path $PSScriptRoot 'antigravity-plugins.ps1'
+    $agArgs = @('-Action', 'Status')
+    if ($repoRoot) { $agArgs += @('-RepoRoot', $repoRoot) }
+    if ($seenParameters.Contains('-StateRoot') -and (Test-Path -LiteralPath $agScript -PathType Leaf)) {
+        $agCommand = Get-Command $agScript -ErrorAction SilentlyContinue
+        if ($null -ne $agCommand -and $agCommand.Parameters.ContainsKey('StateRoot')) {
+            $agArgs += @('-StateRoot', (Join-Path $stateRoot 'antigravity'))
+        }
+    }
+    $childSpecs.Add([pscustomobject]@{ Key = 'Antigravity'; ScriptPath = $agScript; Arguments = $agArgs })
+
+    $mcpScript = Join-Path $PSScriptRoot 'mcp-sync.ps1'
+    $mcpArgs = @('-Action', 'Status', '-Json')
+    if ($repoRoot) { $mcpArgs += @('-RepoRoot', $repoRoot) }
+    if ($seenParameters.Contains('-HomeRoot')) { $mcpArgs += @('-HomeRoot', $homeRoot) }
+    $childSpecs.Add([pscustomobject]@{ Key = 'Mcp'; ScriptPath = $mcpScript; Arguments = $mcpArgs })
+
+    if ($skillsPreState -eq 'eligible') {
+        $skillsArgs = @('-Environment', $envReport.Recorded, '-SkipBuild', '-Json', '-RepoRoot', $repoRoot)
+        if ($seenParameters.Contains('-HomeRoot')) { $skillsArgs += @('-HomeRoot', $homeRoot) }
+        if ($seenParameters.Contains('-StateRoot')) { $skillsArgs += @('-StateRoot', $stateRoot) }
+        $childSpecs.Add([pscustomobject]@{ Key = 'Skills'; ScriptPath = $deploySkillsScript; Arguments = $skillsArgs })
+    }
+
+    $childResults = Invoke-StatusChildProcesses -PwshPath $pwshPath -Specs $childSpecs.ToArray()
+
+    # 2. Config status
+    $configRes = $childResults['Config']
+    $configJson = $null
+    if (-not $configRes.Exists) {
+        $configJson = [ordered]@{ Error = "config-status.ps1 not found at $configStatusScript" }
+    }
+    elseif ($configRes.TimedOut) {
+        $configJson = [ordered]@{ Error = 'config-status.ps1 timed out' }
+    }
+    elseif ($configRes.ExitCode -eq 0) {
+        $configJson = Convert-ChildJson $configRes.StdOut
+        if ($null -ne (Get-SafeProperty $configJson 'Status')) {
+            $configJson = @($configJson)
+        }
+        elseif ($configJson -isnot [array] -and $null -eq (Get-SafeProperty $configJson 'Error')) {
+            $configJson = [ordered]@{ Error = 'Expected a config status report.' }
         }
     }
     else {
-        $configJson = [ordered]@{ Error = "config-status.ps1 not found at $configStatusScript" }
+        $rawErr = (@($configRes.StdOut, $configRes.StdErr) | Where-Object { -not [string]::IsNullOrWhiteSpace($_) }) -join "`n"
+        $configJson = [ordered]@{ Error = "config-status.ps1 failed (exit $($configRes.ExitCode))"; Raw = $rawErr }
     }
 
     # 3. Antigravity plugin status
-    $agScript = Join-Path $PSScriptRoot 'antigravity-plugins.ps1'
+    $agRes = $childResults['Antigravity']
     $agJson = $null
-    if (Test-Path -LiteralPath $agScript -PathType Leaf) {
-        $agArgs = @('-Action', 'Status')
-        if ($repoRoot) { $agArgs += @('-RepoRoot', $repoRoot) }
-        if ($seenParameters.Contains('-StateRoot')) {
-            $agCommand = Get-Command $agScript -ErrorAction SilentlyContinue
-            if ($null -ne $agCommand -and $agCommand.Parameters.ContainsKey('StateRoot')) {
-                $agArgs += @('-StateRoot', (Join-Path $stateRoot 'antigravity'))
-            }
-        }
-        $agOut = & $pwshPath -NoProfile -File $agScript @agArgs 2>&1
-        $agCode = $LASTEXITCODE
-        if ($agCode -eq 0) {
-            $agJson = Convert-ChildJson $agOut
-            if ($null -eq (Get-SafeProperty $agJson 'Action') -and $null -eq (Get-SafeProperty $agJson 'Error')) {
-                $agJson = [ordered]@{ Error = 'Expected an Antigravity plugin status report.' }
-            }
-        }
-        else {
-            $agJson = [ordered]@{ Error = "antigravity-plugins.ps1 failed (exit $agCode)"; Raw = ($agOut -join "`n") }
+    if (-not $agRes.Exists) {
+        $agJson = [ordered]@{ Error = "antigravity-plugins.ps1 not found at $agScript" }
+    }
+    elseif ($agRes.TimedOut) {
+        $agJson = [ordered]@{ Error = 'antigravity-plugins.ps1 timed out' }
+    }
+    elseif ($agRes.ExitCode -eq 0) {
+        $agJson = Convert-ChildJson $agRes.StdOut
+        if ($null -eq (Get-SafeProperty $agJson 'Action') -and $null -eq (Get-SafeProperty $agJson 'Error')) {
+            $agJson = [ordered]@{ Error = 'Expected an Antigravity plugin status report.' }
         }
     }
     else {
-        $agJson = [ordered]@{ Error = "antigravity-plugins.ps1 not found at $agScript" }
+        $rawErr = (@($agRes.StdOut, $agRes.StdErr) | Where-Object { -not [string]::IsNullOrWhiteSpace($_) }) -join "`n"
+        $agJson = [ordered]@{ Error = "antigravity-plugins.ps1 failed (exit $($agRes.ExitCode))"; Raw = $rawErr }
     }
 
     # 4. MCP status
-    $mcpScript = Join-Path $PSScriptRoot 'mcp-sync.ps1'
+    $mcpRes = $childResults['Mcp']
     $mcpJson = $null
-    if (Test-Path -LiteralPath $mcpScript -PathType Leaf) {
-        $mcpArgs = @('-Action', 'Status', '-Json')
-        if ($repoRoot) { $mcpArgs += @('-RepoRoot', $repoRoot) }
-        if ($seenParameters.Contains('-HomeRoot')) { $mcpArgs += @('-HomeRoot', $homeRoot) }
-        $mcpOut = & $pwshPath -NoProfile -File $mcpScript @mcpArgs 2>&1
-        $mcpCode = $LASTEXITCODE
-        if ($mcpCode -eq 0) {
-            $mcpJson = Convert-ChildJson $mcpOut
-            if ($null -eq (Get-SafeProperty $mcpJson 'Summary') -and (Get-SafeProperty $mcpJson 'Items') -isnot [array] -and $null -eq (Get-SafeProperty $mcpJson 'Error')) {
-                $mcpJson = [ordered]@{ Error = 'Expected an MCP status report.' }
-            }
-        }
-        else {
-            $mcpJson = [ordered]@{ Error = "mcp-sync.ps1 failed (exit $mcpCode)"; Raw = ($mcpOut -join "`n") }
+    if (-not $mcpRes.Exists) {
+        $mcpJson = [ordered]@{ Error = "mcp-sync.ps1 not found at $mcpScript" }
+    }
+    elseif ($mcpRes.TimedOut) {
+        $mcpJson = [ordered]@{ Error = 'mcp-sync.ps1 timed out' }
+    }
+    elseif ($mcpRes.ExitCode -eq 0) {
+        $mcpJson = Convert-ChildJson $mcpRes.StdOut
+        if ($null -eq (Get-SafeProperty $mcpJson 'Summary') -and (Get-SafeProperty $mcpJson 'Items') -isnot [array] -and $null -eq (Get-SafeProperty $mcpJson 'Error')) {
+            $mcpJson = [ordered]@{ Error = 'Expected an MCP status report.' }
         }
     }
     else {
-        $mcpJson = [ordered]@{ Error = "mcp-sync.ps1 not found at $mcpScript" }
+        $rawErr = (@($mcpRes.StdOut, $mcpRes.StdErr) | Where-Object { -not [string]::IsNullOrWhiteSpace($_) }) -join "`n"
+        $mcpJson = [ordered]@{ Error = "mcp-sync.ps1 failed (exit $($mcpRes.ExitCode))"; Raw = $rawErr }
+    }
+
+    # 5. Codex Live Skills status
+    $skillsReport = $null
+    $skillsSummaryValue = $null
+    if ($skillsPreState -ne 'eligible') {
+        $skillsReport = [ordered]@{
+            Environment = $envReport.Recorded
+            State       = $skillsPreState
+            LiveRoot    = $null
+            Summary     = $null
+            Error       = $null
+        }
+        $skillsSummaryValue = $skillsPreState
+    }
+    else {
+        $skillsRes = $childResults['Skills']
+        if ($skillsRes.TimedOut) {
+            $skillsReport = [ordered]@{
+                Environment = $envReport.Recorded
+                State       = 'error'
+                LiveRoot    = $null
+                Summary     = $null
+                Error       = 'deploy-skills.ps1 timed out'
+            }
+            $skillsSummaryValue = 'error'
+        }
+        elseif ($skillsRes.ExitCode -ne 0) {
+            $rawErr = (@($skillsRes.StdErr, $skillsRes.StdOut) | Where-Object { -not [string]::IsNullOrWhiteSpace($_) }) -join "`n"
+            $cleanErr = $rawErr -replace '\x1b\[[0-9;]*[A-Za-z]', ''
+            $errLines = @($cleanErr -split "\r?\n")
+            $tildeIdx = -1
+            for ($idx = 0; $idx -lt $errLines.Count; $idx++) {
+                if ($errLines[$idx] -match '^\s*\|\s*~+\s*$') { $tildeIdx = $idx; break }
+            }
+            $extracted = @()
+            if ($tildeIdx -ge 0 -and ($tildeIdx + 1) -lt $errLines.Count) {
+                $extracted = @($errLines[($tildeIdx + 1)..($errLines.Count - 1)] | Where-Object { $_ -match '^\s*\|\s*(.+)$' } | ForEach-Object { $Matches[1].Trim() } | Where-Object { $_ })
+            }
+            if ($extracted.Count -gt 0) {
+                $errMsg = $extracted -join ' '
+            }
+            else {
+                $firstLine = ($errLines | Where-Object { -not [string]::IsNullOrWhiteSpace($_) } | Select-Object -First 1)
+                $errMsg = if ($firstLine) { [string]$firstLine.Trim() } else { "deploy-skills.ps1 failed (exit $($skillsRes.ExitCode))" }
+            }
+            $skillsReport = [ordered]@{
+                Environment = $envReport.Recorded
+                State       = 'error'
+                LiveRoot    = $null
+                Summary     = $null
+                Error       = $errMsg
+            }
+            $skillsSummaryValue = 'error'
+        }
+        else {
+            $skillsJson = Convert-ChildJson $skillsRes.StdOut
+            $skillsJsonErr = Get-SafeProperty $skillsJson 'Error'
+            $skillsJsonSummary = Get-SafeProperty $skillsJson 'Summary'
+            if ($null -ne $skillsJsonErr -or $null -eq $skillsJsonSummary) {
+                $errMsg = if ($skillsJsonErr) { [string]$skillsJsonErr } else { 'Expected a deploy-skills status report.' }
+                $skillsReport = [ordered]@{
+                    Environment = $envReport.Recorded
+                    State       = 'error'
+                    LiveRoot    = $null
+                    Summary     = $null
+                    Error       = $errMsg
+                }
+                $skillsSummaryValue = 'error'
+            }
+            else {
+                $skillsCounts = [ordered]@{
+                    install   = [int]((Get-SafeProperty $skillsJsonSummary 'install') ?? 0)
+                    update    = [int]((Get-SafeProperty $skillsJsonSummary 'update') ?? 0)
+                    unchanged = [int]((Get-SafeProperty $skillsJsonSummary 'unchanged') ?? 0)
+                    prune     = [int]((Get-SafeProperty $skillsJsonSummary 'prune') ?? 0)
+                    unknown   = [int]((Get-SafeProperty $skillsJsonSummary 'unknown') ?? 0)
+                }
+                $skillsReport = [ordered]@{
+                    Environment = [string]((Get-SafeProperty $skillsJson 'Environment') ?? $envReport.Recorded)
+                    State       = 'checked'
+                    LiveRoot    = Get-SafeProperty $skillsJson 'LiveRoot'
+                    Summary     = $skillsCounts
+                    Error       = $null
+                }
+                $skillsSummaryValue = $skillsCounts
+            }
+        }
     }
 
     # Summary calculations
@@ -459,9 +667,11 @@ function Invoke-UnifiedStatus {
     $configError = Get-SafeProperty $configJson 'Error'
     if ($configError) { $configSummary = $null }
     if ($mcpErrorVal) { $mcpSummary = $null }
-    $exitCode = [int][bool]($envReport.Failed -or $configError -or $agErrorVal -or $mcpErrorVal)
+    $skillsHasError = ($skillsReport.State -ceq 'error')
+    $exitCode = [int][bool]($envReport.Failed -or $configError -or $agErrorVal -or $mcpErrorVal -or $skillsHasError)
     $summary = [ordered]@{
         Environment = $envReport.Recorded
+        Skills      = $skillsSummaryValue
         Config      = $configSummary
         Antigravity = $agAction
         Mcp         = $mcpSummary
@@ -475,6 +685,7 @@ function Invoke-UnifiedStatus {
             Available = $envReport.Available
             Failed    = $envReport.Failed
         }
+        Skills        = $skillsReport
         Config        = $configJson
         Antigravity   = $agJson
         Mcp           = $mcpJson
@@ -503,6 +714,24 @@ function Invoke-UnifiedStatus {
         Write-Host ("  Record unavailable reason: {0}. Inspect local deploy record." -f $envReport.StateReason) -ForegroundColor Yellow
     }
     Write-Host ("  Available environments: {0}" -f ($envReport.Available -join ', '))
+    Write-Host ''
+
+    Write-Host '[Codex Live Skills]' -ForegroundColor Cyan
+    if ($skillsReport.State -eq 'checked') {
+        $ss = $skillsReport.Summary
+        $skillsColor = if ($ss.install -gt 0 -or $ss.update -gt 0 -or $ss.prune -gt 0) { 'Yellow' } else { 'Green' }
+        Write-Host ("  Environment: {0}  live={1}" -f $skillsReport.Environment, $skillsReport.LiveRoot)
+        Write-Host ("  Summary: install={0}  update={1}  unchanged={2}  prune={3}  unknown={4}" -f $ss.install, $ss.update, $ss.unchanged, $ss.prune, $ss.unknown) -ForegroundColor $skillsColor
+    }
+    elseif ($skillsReport.State -eq 'build-required') {
+        Write-Host ("  Environment: {0}  state=build-required (run build-skills.ps1 before checking live skill drift)" -f $skillsReport.Environment) -ForegroundColor Yellow
+    }
+    elseif ($skillsReport.State -eq 'unavailable') {
+        Write-Host ("  State: unavailable (environment={0})" -f $skillsReport.Environment) -ForegroundColor Yellow
+    }
+    else {
+        Write-Host ("  Error checking Codex live skills: {0}" -f $skillsReport.Error) -ForegroundColor Red
+    }
     Write-Host ''
 
     Write-Host '[Config Status]' -ForegroundColor Cyan
@@ -578,6 +807,268 @@ function Invoke-UnifiedStatus {
         Write-Host '  No managed MCP projections found.'
     }
     exit $exitCode
+}
+
+function ConvertTo-RouteArguments {
+    param(
+        [Parameter(Mandatory)] [string] $CommandName,
+        [Parameter(Mandatory)] [string] $GroupAction,
+        [AllowEmptyCollection()] [object[]] $Arguments = @()
+    )
+
+    $routeSpecs = @{
+        antigravity = @{
+            IncludeActionArg   = $true
+            PassThroughUnknown = $false
+            ModeAction         = 'deploy'
+            ValueParams        = @{
+                '-RepoRoot' = @{ DisallowedValues = @('-RepoRoot', '-JsonPath', '-ExternalPlugin'); DuplicateError = 'Duplicate Antigravity path parameter.'; MissingValueError = 'Antigravity path parameters require a value.' }
+                '-JsonPath' = @{ DisallowedValues = @('-RepoRoot', '-JsonPath', '-ExternalPlugin'); DuplicateError = 'Duplicate Antigravity path parameter.'; MissingValueError = 'Antigravity path parameters require a value.' }
+            }
+            MultiParams        = @{
+                '-ExternalPlugin' = @{
+                    AllowedActions    = @('deploy')
+                    DisallowedError   = "The antigravity $GroupAction command accepts no -ExternalPlugin parameter."
+                    DisallowedValues  = @('-RepoRoot', '-JsonPath', '-ExternalPlugin', '-DryRun', '-Apply')
+                    MissingValueError = 'Antigravity -ExternalPlugin requires a value.'
+                    Pattern           = '^[a-z0-9][a-z0-9-]*$'
+                    PatternError      = 'Antigravity -ExternalPlugin value must be a single lowercase plugin name.'
+                    SplitComma        = $false
+                    Dedupe            = $false
+                }
+            }
+            SwitchParams       = @{}
+            UnsupportedError   = 'Unsupported antigravity argument. Use exact -RepoRoot, -JsonPath, -ExternalPlugin, -DryRun or -Apply names.'
+            ModeDisallowedErr  = "The antigravity $GroupAction command accepts no -DryRun or -Apply mode."
+            DuplicateModeError = 'The antigravity deploy command accepts only one mode: -DryRun or -Apply.'
+            MissingModeError   = 'The antigravity deploy command requires an explicit -DryRun or -Apply mode. Run -DryRun first.'
+        }
+        mcp = @{
+            IncludeActionArg   = $true
+            PassThroughUnknown = $false
+            ModeAction         = 'deploy'
+            ValueParams        = @{
+                '-RepoRoot'   = @{ DisallowedValues = @('-RepoRoot', '-HomeRoot', '-BackupRoot', '-JsonPath', '-Platform', '-Server'); DuplicateError = 'Duplicate MCP path parameter: {0}.'; MissingValueError = 'MCP parameter {0} requires a value.' }
+                '-HomeRoot'   = @{ DisallowedValues = @('-RepoRoot', '-HomeRoot', '-BackupRoot', '-JsonPath', '-Platform', '-Server'); DuplicateError = 'Duplicate MCP path parameter: {0}.'; MissingValueError = 'MCP parameter {0} requires a value.' }
+                '-BackupRoot' = @{ AllowedActions = @('deploy'); DisallowedError = "The mcp $GroupAction command accepts no -BackupRoot parameter."; DisallowedValues = @('-RepoRoot', '-HomeRoot', '-BackupRoot', '-JsonPath', '-Platform', '-Server'); DuplicateError = 'Duplicate MCP path parameter: {0}.'; MissingValueError = 'MCP parameter {0} requires a value.' }
+                '-JsonPath'   = @{ DisallowedValues = @('-RepoRoot', '-HomeRoot', '-BackupRoot', '-JsonPath', '-Platform', '-Server'); DuplicateError = 'Duplicate MCP path parameter: {0}.'; MissingValueError = 'MCP parameter {0} requires a value.' }
+            }
+            MultiParams        = @{
+                '-Platform' = @{
+                    DisallowedValues  = @('-RepoRoot', '-HomeRoot', '-BackupRoot', '-JsonPath', '-Platform', '-Server', '-DryRun', '-Apply', '-Json', '-SkipSecretScan')
+                    MissingValueError = 'MCP -Platform requires a value.'
+                    EmptyTokensError  = 'MCP -Platform requires at least one platform name.'
+                    SplitComma        = $true
+                    AllowedValues     = @('Antigravity', 'Codex')
+                    AllowedError      = "Unsupported MCP platform '{0}'. Expected Antigravity or Codex."
+                    Dedupe            = $true
+                    CaseSensitive     = $false
+                }
+                '-Server'   = @{
+                    DisallowedValues  = @('-RepoRoot', '-HomeRoot', '-BackupRoot', '-JsonPath', '-Platform', '-Server', '-DryRun', '-Apply', '-Json', '-SkipSecretScan')
+                    MissingValueError = 'MCP -Server requires a value.'
+                    EmptyTokensError  = 'MCP -Server requires at least one server name.'
+                    SplitComma        = $true
+                    Pattern           = '^[a-z0-9][a-z0-9_-]*$'
+                    PatternError      = 'MCP -Server value must be a valid lowercase server name.'
+                    Dedupe            = $true
+                    CaseSensitive     = $true
+                }
+            }
+            SwitchParams       = @{
+                '-Json'           = @{ DuplicateError = 'Duplicate MCP -Json switch.' }
+                '-SkipSecretScan' = @{ AllowedActions = @('deploy'); DisallowedError = "The mcp $GroupAction command accepts no -SkipSecretScan parameter."; DuplicateError = 'Duplicate MCP -SkipSecretScan switch.' }
+            }
+            UnsupportedError   = 'Unsupported mcp argument. Use exact -RepoRoot, -HomeRoot, -BackupRoot, -JsonPath, -Platform, -Server, -Json, -SkipSecretScan, -DryRun or -Apply names.'
+            ModeDisallowedErr  = "The mcp $GroupAction command accepts no -DryRun or -Apply mode."
+            DuplicateModeError = 'The mcp deploy command accepts only one mode: -DryRun or -Apply.'
+            MissingModeError   = 'The mcp deploy command requires an explicit -DryRun or -Apply mode. Run -DryRun first.'
+        }
+        config = @{
+            IncludeActionArg   = $false
+            PassThroughUnknown = $true
+            ModeAction         = $null
+            ValueParams        = @{}
+            MultiParams        = @{
+                '-Platform' = @{
+                    CaseInsensitive       = $true
+                    AllowColonSyntax      = $true
+                    RejectLeadingDashVal  = $true
+                    MissingValueError     = 'Config -Platform requires at least one platform name. Expected Codex or Antigravity.'
+                    EmptyTokensError      = 'Config -Platform requires at least one platform name. Expected Codex or Antigravity.'
+                    SplitComma            = $false
+                    Dedupe                = $false
+                }
+            }
+            SwitchParams       = @{}
+        }
+    }
+
+    $spec = $routeSpecs[$CommandName]
+    $outArgs = [System.Collections.Generic.List[object]]::new()
+    if ($spec.IncludeActionArg) {
+        $outArgs.Add('-Action')
+        $outArgs.Add($GroupAction)
+    }
+
+    $seenParams = @{}
+    $multiBuckets = @{}
+    foreach ($k in $spec.MultiParams.Keys) { $multiBuckets[$k] = [System.Collections.Generic.List[string]]::new() }
+    $modeSelected = $null
+
+    for ($i = 0; $i -lt $Arguments.Count; $i++) {
+        $rawItem = $Arguments[$i]
+        $argument = [string] $rawItem
+
+        if ($spec.ValueParams.ContainsKey($argument)) {
+            $vp = $spec.ValueParams[$argument]
+            if ($vp.ContainsKey('AllowedActions') -and ($GroupAction -notin $vp.AllowedActions)) {
+                Write-Error $vp.DisallowedError -ErrorAction Continue
+                exit 1
+            }
+            if ($seenParams.ContainsKey($argument)) {
+                Write-Error ([string]::Format($vp.DuplicateError, $argument)) -ErrorAction Continue
+                exit 1
+            }
+            if ($i + 1 -ge $Arguments.Count -or [string]::IsNullOrWhiteSpace([string]$Arguments[$i + 1]) -or ($Arguments[$i + 1] -in $vp.DisallowedValues)) {
+                Write-Error ([string]::Format($vp.MissingValueError, $argument)) -ErrorAction Continue
+                exit 1
+            }
+            $seenParams[$argument] = $true
+            $outArgs.Add($argument + ':' + [string]$Arguments[++$i])
+            continue
+        }
+
+        $matchedMultiKey = $null
+        $colonValue = $null
+        foreach ($mk in $spec.MultiParams.Keys) {
+            $mpSpec = $spec.MultiParams[$mk]
+            $isExact = if ($mpSpec['CaseInsensitive']) { $argument -ieq $mk } else { $argument -eq $mk }
+            if ($isExact) {
+                $matchedMultiKey = $mk
+                break
+            }
+            if ($mpSpec['AllowColonSyntax'] -and ($argument -ilike ($mk + ':*'))) {
+                $matchedMultiKey = $mk
+                $colonValue = $argument.Substring($mk.Length + 1)
+                break
+            }
+        }
+        if ($null -ne $matchedMultiKey) {
+            $mp = $spec.MultiParams[$matchedMultiKey]
+            if ($mp.ContainsKey('AllowedActions') -and ($GroupAction -notin $mp.AllowedActions)) {
+                Write-Error $mp.DisallowedError -ErrorAction Continue
+                exit 1
+            }
+            $seenParams[$matchedMultiKey] = $true
+            $rawVal = $null
+            if ($null -ne $colonValue) {
+                if ([string]::IsNullOrWhiteSpace($colonValue)) {
+                    Write-Error $mp.MissingValueError -ErrorAction Continue
+                    exit 1
+                }
+                $rawVal = $colonValue
+            }
+            else {
+                $hasNext = ($i + 1 -lt $Arguments.Count)
+                $nextStr = if ($hasNext) { [string]$Arguments[$i + 1] } else { '' }
+                $badNext = (-not $hasNext) -or [string]::IsNullOrWhiteSpace($nextStr) -or
+                    ($mp['RejectLeadingDashVal'] -and $nextStr.StartsWith('-')) -or
+                    ($mp.ContainsKey('DisallowedValues') -and ($nextStr -in $mp.DisallowedValues))
+                if ($badNext) {
+                    Write-Error $mp.MissingValueError -ErrorAction Continue
+                    exit 1
+                }
+                $rawVal = [string]$Arguments[++$i]
+            }
+
+            if ($mp['SplitComma']) {
+                $tokens = @($rawVal -split ',' | ForEach-Object { $_.Trim() } | Where-Object { $_ })
+                if ($tokens.Count -eq 0) {
+                    Write-Error $mp.EmptyTokensError -ErrorAction Continue
+                    exit 1
+                }
+                foreach ($token in $tokens) {
+                    if ($mp.ContainsKey('AllowedValues') -and ($token -notin $mp.AllowedValues)) {
+                        Write-Error ([string]::Format($mp.AllowedError, $token)) -ErrorAction Continue
+                        exit 1
+                    }
+                    if ($mp.ContainsKey('Pattern') -and ($token -cnotmatch $mp.Pattern)) {
+                        Write-Error $mp.PatternError -ErrorAction Continue
+                        exit 1
+                    }
+                    $already = if ($mp['CaseSensitive']) { $token -cin $multiBuckets[$matchedMultiKey] } else { $token -in $multiBuckets[$matchedMultiKey] }
+                    if (-not $mp['Dedupe'] -or -not $already) {
+                        $multiBuckets[$matchedMultiKey].Add($token)
+                    }
+                }
+            }
+            else {
+                if ($mp.ContainsKey('Pattern') -and ($rawVal -cnotmatch $mp.Pattern)) {
+                    Write-Error $mp.PatternError -ErrorAction Continue
+                    exit 1
+                }
+                $multiBuckets[$matchedMultiKey].Add($rawVal)
+            }
+            continue
+        }
+
+        if ($spec.SwitchParams.ContainsKey($argument)) {
+            $sp = $spec.SwitchParams[$argument]
+            if ($sp.ContainsKey('AllowedActions') -and ($GroupAction -notin $sp.AllowedActions)) {
+                Write-Error $sp.DisallowedError -ErrorAction Continue
+                exit 1
+            }
+            if ($seenParams.ContainsKey($argument)) {
+                Write-Error $sp.DuplicateError -ErrorAction Continue
+                exit 1
+            }
+            $seenParams[$argument] = $true
+            $outArgs.Add($argument)
+            continue
+        }
+
+        if ($spec.PassThroughUnknown) {
+            $outArgs.Add($rawItem)
+            continue
+        }
+
+        if ($argument -notin @('-DryRun', '-Apply')) {
+            Write-Error $spec.UnsupportedError -ErrorAction Continue
+            exit 1
+        }
+        if ($GroupAction -ne $spec.ModeAction) {
+            Write-Error $spec.ModeDisallowedErr -ErrorAction Continue
+            exit 1
+        }
+        if ($null -ne $modeSelected) {
+            Write-Error $spec.DuplicateModeError -ErrorAction Continue
+            exit 1
+        }
+        $modeSelected = $argument
+        if ($argument -eq '-Apply') { $outArgs.Add('-Apply') }
+    }
+
+    if ($null -ne $spec.ModeAction -and $GroupAction -eq $spec.ModeAction -and $null -eq $modeSelected) {
+        Write-Error $spec.MissingModeError -ErrorAction Continue
+        exit 1
+    }
+
+    foreach ($mk in $spec.MultiParams.Keys) {
+        $mp = $spec.MultiParams[$mk]
+        if ($multiBuckets[$mk].Count -gt 0) {
+            if (-not $mp['SplitComma'] -and $mp.ContainsKey('EmptyTokensError')) {
+                $tokens = @($multiBuckets[$mk] | ForEach-Object { $_ -split ',' } | ForEach-Object { $_.Trim() } | Where-Object { $_ })
+                if ($tokens.Count -eq 0) {
+                    Write-Error $mp.EmptyTokensError -ErrorAction Continue
+                    exit 1
+                }
+            }
+            $outArgs.Add($mk + ':' + ($multiBuckets[$mk] -join ','))
+        }
+    }
+
+    return ,$outArgs.ToArray()
 }
 
 if ([string]::IsNullOrWhiteSpace($Command)) {
@@ -689,234 +1180,8 @@ if ($groupCommandMaps.ContainsKey($normalizedCommand)) {
         $forwardedArguments = @('-Environment', [string] $forwardedArguments[0]) + @($forwardedArguments | Select-Object -Skip 1)
     }
 
-    if ($normalizedCommand -eq 'antigravity') {
-        # Parse only this route's exact public contract. PowerShell accepts parameter
-        # abbreviations downstream, so unknown tokens must never reach the child.
-        $pluginArguments = @('-Action', $groupAction)
-        $seenParameters = @{}
-        $externalPlugins = @()
-        $pluginMode = $null
-        for ($i = 0; $i -lt $forwardedArguments.Count; $i++) {
-            $argument = [string] $forwardedArguments[$i]
-            if ($argument -in @('-RepoRoot', '-JsonPath')) {
-                if ($seenParameters.ContainsKey($argument)) {
-                    Write-Error 'Duplicate Antigravity path parameter.' -ErrorAction Continue
-                    exit 1
-                }
-                if ($i + 1 -ge $forwardedArguments.Count -or
-                    [string]::IsNullOrWhiteSpace([string] $forwardedArguments[$i + 1]) -or
-                    $forwardedArguments[$i + 1] -in @('-RepoRoot', '-JsonPath', '-ExternalPlugin')) {
-                    Write-Error 'Antigravity path parameters require a value.' -ErrorAction Continue
-                    exit 1
-                }
-                $seenParameters[$argument] = $true
-                # A single colon-bound token preserves literal values such as -Apply;
-                # forwarding them as separate tokens would change child binding.
-                $pluginArguments += $argument + ':' + [string] $forwardedArguments[++$i]
-                continue
-            }
-            if ($argument -eq '-ExternalPlugin') {
-                if ($groupAction -ne 'deploy') {
-                    Write-Error "The antigravity $groupAction command accepts no -ExternalPlugin parameter." -ErrorAction Continue
-                    exit 1
-                }
-                if ($i + 1 -ge $forwardedArguments.Count -or
-                    [string]::IsNullOrWhiteSpace([string] $forwardedArguments[$i + 1]) -or
-                    $forwardedArguments[$i + 1] -in @('-RepoRoot', '-JsonPath', '-ExternalPlugin', '-DryRun', '-Apply')) {
-                    Write-Error 'Antigravity -ExternalPlugin requires a value.' -ErrorAction Continue
-                    exit 1
-                }
-                $extValue = [string] $forwardedArguments[++$i]
-                if ($extValue -cnotmatch '^[a-z0-9][a-z0-9-]*$') {
-                    Write-Error 'Antigravity -ExternalPlugin value must be a single lowercase plugin name.' -ErrorAction Continue
-                    exit 1
-                }
-                $externalPlugins += $extValue
-                continue
-            }
-            if ($argument -notin @('-DryRun', '-Apply')) {
-                Write-Error 'Unsupported antigravity argument. Use exact -RepoRoot, -JsonPath, -ExternalPlugin, -DryRun or -Apply names.' -ErrorAction Continue
-                exit 1
-            }
-            if ($groupAction -ne 'deploy') {
-                Write-Error "The antigravity $groupAction command accepts no -DryRun or -Apply mode." -ErrorAction Continue
-                exit 1
-            }
-            if ($null -ne $pluginMode) {
-                Write-Error 'The antigravity deploy command accepts only one mode: -DryRun or -Apply.' -ErrorAction Continue
-                exit 1
-            }
-            $pluginMode = $argument
-            if ($argument -eq '-Apply') { $pluginArguments += '-Apply' }
-        }
-        if ($groupAction -eq 'deploy' -and $null -eq $pluginMode) {
-            Write-Error 'The antigravity deploy command requires an explicit -DryRun or -Apply mode. Run -DryRun first.' -ErrorAction Continue
-            exit 1
-        }
-        if ($externalPlugins.Count -gt 0) { $pluginArguments += '-ExternalPlugin:' + ($externalPlugins -join ',') }
-        $forwardedArguments = $pluginArguments
-    }
-
-    if ($normalizedCommand -eq 'mcp') {
-        $mcpArguments = @('-Action', $groupAction)
-        $seenParameters = @{}
-        $mcpPlatforms = @()
-        $mcpServers = @()
-        $mcpMode = $null
-        $mcpValueParams = @('-RepoRoot', '-HomeRoot', '-BackupRoot', '-JsonPath')
-        $mcpNamedValueFlags = @('-RepoRoot', '-HomeRoot', '-BackupRoot', '-JsonPath', '-Platform', '-Server')
-        for ($i = 0; $i -lt $forwardedArguments.Count; $i++) {
-            $argument = [string] $forwardedArguments[$i]
-            if ($argument -in $mcpValueParams) {
-                if ($argument -eq '-BackupRoot' -and $groupAction -ne 'deploy') {
-                    Write-Error "The mcp $groupAction command accepts no -BackupRoot parameter." -ErrorAction Continue
-                    exit 1
-                }
-                if ($seenParameters.ContainsKey($argument)) {
-                    Write-Error "Duplicate MCP path parameter: $argument." -ErrorAction Continue
-                    exit 1
-                }
-                if ($i + 1 -ge $forwardedArguments.Count -or
-                    [string]::IsNullOrWhiteSpace([string] $forwardedArguments[$i + 1]) -or
-                    $forwardedArguments[$i + 1] -in $mcpNamedValueFlags) {
-                    Write-Error "MCP parameter $argument requires a value." -ErrorAction Continue
-                    exit 1
-                }
-                $seenParameters[$argument] = $true
-                $mcpArguments += $argument + ':' + [string] $forwardedArguments[++$i]
-                continue
-            }
-            if ($argument -eq '-Platform') {
-                if ($i + 1 -ge $forwardedArguments.Count -or
-                    [string]::IsNullOrWhiteSpace([string] $forwardedArguments[$i + 1]) -or
-                    $forwardedArguments[$i + 1] -in ($mcpNamedValueFlags + @('-DryRun', '-Apply', '-Json', '-SkipSecretScan'))) {
-                    Write-Error 'MCP -Platform requires a value.' -ErrorAction Continue
-                    exit 1
-                }
-                $platRaw = [string] $forwardedArguments[++$i]
-                $platTokens = @($platRaw -split ',' | ForEach-Object { $_.Trim() } | Where-Object { $_ })
-                if ($platTokens.Count -eq 0) {
-                    Write-Error 'MCP -Platform requires at least one platform name.' -ErrorAction Continue
-                    exit 1
-                }
-                foreach ($token in $platTokens) {
-                    if ($token -notin @('Antigravity', 'Codex')) {
-                        Write-Error "Unsupported MCP platform '$token'. Expected Antigravity or Codex." -ErrorAction Continue
-                        exit 1
-                    }
-                    if ($token -notin $mcpPlatforms) { $mcpPlatforms += $token }
-                }
-                continue
-            }
-            if ($argument -eq '-Server') {
-                if ($i + 1 -ge $forwardedArguments.Count -or
-                    [string]::IsNullOrWhiteSpace([string] $forwardedArguments[$i + 1]) -or
-                    $forwardedArguments[$i + 1] -in ($mcpNamedValueFlags + @('-DryRun', '-Apply', '-Json', '-SkipSecretScan'))) {
-                    Write-Error 'MCP -Server requires a value.' -ErrorAction Continue
-                    exit 1
-                }
-                $srvRaw = [string] $forwardedArguments[++$i]
-                $srvTokens = @($srvRaw -split ',' | ForEach-Object { $_.Trim() } | Where-Object { $_ })
-                if ($srvTokens.Count -eq 0) {
-                    Write-Error 'MCP -Server requires at least one server name.' -ErrorAction Continue
-                    exit 1
-                }
-                foreach ($token in $srvTokens) {
-                    if ($token -cnotmatch '^[a-z0-9][a-z0-9_-]*$') {
-                        Write-Error 'MCP -Server value must be a valid lowercase server name.' -ErrorAction Continue
-                        exit 1
-                    }
-                    if ($token -cnotin $mcpServers) { $mcpServers += $token }
-                }
-                continue
-            }
-            if ($argument -eq '-Json') {
-                if ($seenParameters.ContainsKey('-Json')) {
-                    Write-Error 'Duplicate MCP -Json switch.' -ErrorAction Continue
-                    exit 1
-                }
-                $seenParameters['-Json'] = $true
-                $mcpArguments += '-Json'
-                continue
-            }
-            if ($argument -eq '-SkipSecretScan') {
-                if ($groupAction -ne 'deploy') {
-                    Write-Error "The mcp $groupAction command accepts no -SkipSecretScan parameter." -ErrorAction Continue
-                    exit 1
-                }
-                if ($seenParameters.ContainsKey('-SkipSecretScan')) {
-                    Write-Error 'Duplicate MCP -SkipSecretScan switch.' -ErrorAction Continue
-                    exit 1
-                }
-                $seenParameters['-SkipSecretScan'] = $true
-                $mcpArguments += '-SkipSecretScan'
-                continue
-            }
-            if ($argument -notin @('-DryRun', '-Apply')) {
-                Write-Error 'Unsupported mcp argument. Use exact -RepoRoot, -HomeRoot, -BackupRoot, -JsonPath, -Platform, -Server, -Json, -SkipSecretScan, -DryRun or -Apply names.' -ErrorAction Continue
-                exit 1
-            }
-            if ($groupAction -ne 'deploy') {
-                Write-Error "The mcp $groupAction command accepts no -DryRun or -Apply mode." -ErrorAction Continue
-                exit 1
-            }
-            if ($null -ne $mcpMode) {
-                Write-Error 'The mcp deploy command accepts only one mode: -DryRun or -Apply.' -ErrorAction Continue
-                exit 1
-            }
-            $mcpMode = $argument
-            if ($argument -eq '-Apply') { $mcpArguments += '-Apply' }
-        }
-        if ($groupAction -eq 'deploy' -and $null -eq $mcpMode) {
-            Write-Error 'The mcp deploy command requires an explicit -DryRun or -Apply mode. Run -DryRun first.' -ErrorAction Continue
-            exit 1
-        }
-        if ($mcpPlatforms.Count -gt 0) { $mcpArguments += '-Platform:' + ($mcpPlatforms -join ',') }
-        if ($mcpServers.Count -gt 0) { $mcpArguments += '-Server:' + ($mcpServers -join ',') }
-        $forwardedArguments = $mcpArguments
-    }
-
-    if ($normalizedCommand -eq 'config') {
-        $consolidatedArgs = [System.Collections.Generic.List[object]]::new()
-        $platformValues = [System.Collections.Generic.List[string]]::new()
-        $sawPlatform = $false
-        for ($i = 0; $i -lt $forwardedArguments.Count; $i++) {
-            $arg = [string] $forwardedArguments[$i]
-            if ($arg -ieq '-Platform') {
-                $sawPlatform = $true
-                if ($i + 1 -ge $forwardedArguments.Count -or ([string]$forwardedArguments[$i + 1]).StartsWith('-')) {
-                    Write-Error 'Config -Platform requires at least one platform name. Expected Codex or Antigravity.' -ErrorAction Continue
-                    exit 1
-                }
-                $val = [string]$forwardedArguments[++$i]
-                if ([string]::IsNullOrWhiteSpace($val)) {
-                    Write-Error 'Config -Platform requires at least one platform name. Expected Codex or Antigravity.' -ErrorAction Continue
-                    exit 1
-                }
-                $platformValues.Add($val)
-                continue
-            }
-            if ($arg -ilike '-Platform:*') {
-                $sawPlatform = $true
-                $val = $arg.Substring(10)
-                if ([string]::IsNullOrWhiteSpace($val)) {
-                    Write-Error 'Config -Platform requires at least one platform name. Expected Codex or Antigravity.' -ErrorAction Continue
-                    exit 1
-                }
-                $platformValues.Add($val)
-                continue
-            }
-            $consolidatedArgs.Add($forwardedArguments[$i])
-        }
-        if ($sawPlatform) {
-            $tokens = @($platformValues | ForEach-Object { $_ -split ',' } | ForEach-Object { $_.Trim() } | Where-Object { $_ })
-            if ($tokens.Count -eq 0) {
-                Write-Error 'Config -Platform requires at least one platform name. Expected Codex or Antigravity.' -ErrorAction Continue
-                exit 1
-            }
-            $consolidatedArgs.Add('-Platform:' + ($platformValues -join ','))
-        }
-        $forwardedArguments = @($consolidatedArgs)
+    if ($normalizedCommand -in @('antigravity', 'mcp', 'config')) {
+        $forwardedArguments = ConvertTo-RouteArguments -CommandName $normalizedCommand -GroupAction $groupAction -Arguments $forwardedArguments
     }
 
     $requiresExplicitMode = (($normalizedCommand -eq 'env' -and $groupAction -eq 'deploy') -or
