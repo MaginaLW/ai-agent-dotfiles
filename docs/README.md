@@ -497,7 +497,7 @@ pwsh -NoProfile -File scripts/agent-dotfiles.ps1 antigravity deploy -DryRun
 不备份整个原生配置根，不把凭据写入仓库。受控更新通过写前备份 live 目录到 attempt/backup，
 随后顺序执行官方 `agy plugin uninstall` 与 `agy plugin install` 并进行全量读回校验与外部插件无变动验证；
 降级与自动盲目回滚仍保持阻塞，卸载、停用与手动恢复须有覆盖实际动作的许可。
-构建候选包保存在工作区 `tmp/antigravity/`；本机部署收据、尝试记录与 pending 标记持久化在 `%LOCALAPPDATA%\ai-agent-dotfiles.deploy\antigravity\`（可通过内部 `-StateRoot` 参数进行隔离测试），解除了跨工作树部署归属割裂问题。`status` 命令直接解耦对比 live 文件与源码 digest，无需依赖本地未构建包或受门禁改动干扰。未解决的尝试保留 pending 标记阻止继续变更；先审阅读回，不能删除标记来盲重试。原生路径覆写变量非空时拒绝猜测目标。
+构建候选包保存在工作区 `tmp/antigravity/`；本机部署收据、尝试记录与 pending 标记持久化在 `%LOCALAPPDATA%\ai-agent-dotfiles.deploy\antigravity\`（可通过内部 `-StateRoot` 参数进行隔离测试），解除了跨工作树部署归属割裂问题。`status` 命令直接解耦对比 live 文件与源码 digest，无需依赖本地未构建包或受门禁改动干扰。未解决的尝试保留 pending 标记阻止继续变更；先审阅读回，不能删除标记来盲重试。原生路径覆写变量非空时拒绝猜测目标。Windows 下若在运行中的 Antigravity IDE 会话内执行 `antigravity deploy -Apply` 并遇到 `plugins/` 目录重命名 `Access is denied`，请先彻底退出 Antigravity IDE，审阅保留的 attempt 结果后在外部 PowerShell 7 窗口按需归档阻塞的 `pending-install.json`（及已失效的旧 `installed.json`），再执行 `-DryRun` 与 `-Apply` 完成收敛（切勿删除备份或盲目重试）。
 
 安装读回、启用、加载与使用分别记录为 built / validated / installed / enabled / loaded / used。
 在 App 和 CLI 中分别核对插件面板、项目 Customizations、`/skills` 的身份、版本、来源与加载路径；
