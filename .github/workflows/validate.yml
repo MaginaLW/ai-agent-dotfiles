@@ -28,6 +28,21 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v5
 
+      - name: Resolve pinned tool cache path
+        id: tool-cache-path
+        shell: pwsh
+        run: |
+          $local = [Environment]::GetFolderPath([Environment+SpecialFolder]::LocalApplicationData)
+          if ([string]::IsNullOrWhiteSpace($local)) { throw 'LocalApplicationData folder is unavailable.' }
+          $cachePath = Join-Path $local 'ai-agent-dotfiles.tool-cache'
+          "path=$cachePath" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
+
+      - name: Cache pinned gitleaks
+        uses: actions/cache@v4
+        with:
+          path: ${{ steps.tool-cache-path.outputs.path }}
+          key: pinned-gitleaks-${{ runner.os }}-${{ hashFiles('tools/gitleaks/gitleaks.lock.json') }}
+
       - name: Install pinned gitleaks
         shell: pwsh
         run: |

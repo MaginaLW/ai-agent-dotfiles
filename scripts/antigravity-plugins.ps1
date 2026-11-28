@@ -161,21 +161,8 @@ function Get-AgTreeFiles {
 function Invoke-AgNativeCommand {
     param([string[]] $Arguments)
     if (-not $script:AgNative) { throw 'agy is unavailable; native validation remains incomplete.' }
-    $info = [Diagnostics.ProcessStartInfo]::new($script:AgNative)
-    foreach ($argument in $Arguments) { $info.ArgumentList.Add($argument) }
-    $info.WorkingDirectory = $script:AgRepo
-    $info.UseShellExecute = $false
-    $info.RedirectStandardOutput = $true
-    $info.RedirectStandardError = $true
-    $process = [Diagnostics.Process]::Start($info)
-    try {
-        $stdout = $process.StandardOutput.ReadToEndAsync()
-        $stderr = $process.StandardError.ReadToEndAsync()
-        if (-not $process.WaitForExit(120000)) { $process.Kill($true); throw 'Native command timed out; mutating calls require readback before recovery.' }
-        $process.WaitForExit()
-        return @{ Code=$process.ExitCode; Out=$stdout.GetAwaiter().GetResult(); Error=$stderr.GetAwaiter().GetResult() }
-    }
-    finally { $process.Dispose() }
+    $res = Invoke-BoundedProcess -FilePath $script:AgNative -Arguments $Arguments -WorkingDirectory $script:AgRepo -TimeoutSeconds 120 -TimeoutMessage 'Native command timed out; mutating calls require readback before recovery.'
+    return @{ Code = $res.ExitCode; Out = $res.StdOut; Error = $res.StdErr }
 }
 
 function Get-AgNativeValidation {
@@ -203,22 +190,8 @@ function Get-AgNativeValidation {
 function Invoke-AgPackageScan {
     param([string] $Root)
     $tool = Get-PinnedToolExecutable -LockPath (Join-Path $script:AgRepo 'tools/gitleaks/gitleaks.lock.json')
-    $info = [Diagnostics.ProcessStartInfo]::new($tool.Executable)
-    foreach ($argument in @('detect','--no-git','--source',$Root,'--redact','--config',(Join-Path $script:AgRepo '.gitleaks.toml'))) { $info.ArgumentList.Add($argument) }
-    $info.UseShellExecute = $false
-    $info.RedirectStandardOutput = $true
-    $info.RedirectStandardError = $true
-    $process = [Diagnostics.Process]::Start($info)
-    try {
-        $out = $process.StandardOutput.ReadToEndAsync()
-        $err = $process.StandardError.ReadToEndAsync()
-        if (-not $process.WaitForExit(120000)) { $process.Kill($true); throw 'Package secret scan timed out.' }
-        $process.WaitForExit()
-        $null = $out.GetAwaiter().GetResult()
-        $null = $err.GetAwaiter().GetResult()
-        if ($process.ExitCode -ne 0) { throw 'Pinned package secret scan failed (redacted scanner output is not published).' }
-    }
-    finally { $process.Dispose() }
+    $res = Invoke-BoundedProcess -FilePath $tool.Executable -Arguments @('detect','--no-git','--source',$Root,'--redact','--config',(Join-Path $script:AgRepo '.gitleaks.toml')) -TimeoutSeconds 120 -TimeoutMessage 'Package secret scan timed out.'
+    if ($res.ExitCode -ne 0) { throw 'Pinned package secret scan failed (redacted scanner output is not published).' }
 }
 
 function Get-AgGateFingerprint {

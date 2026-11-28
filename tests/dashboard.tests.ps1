@@ -91,9 +91,9 @@ try {
     $fixtureRepo = Join-Path $work 'repo'
     $fakeHome = Join-Path $work 'home'
     $fakeState = Join-Path $work 'state'
-    New-Item -ItemType Directory -Path (Join-Path $fixtureRepo 'dashboard'), $fakeHome, $fakeState -Force | Out-Null
-    Copy-Item -LiteralPath (Join-Path $RepoRoot 'dashboard/server.py') -Destination (Join-Path $fixtureRepo 'dashboard/server.py') -Force
-    Copy-Item -LiteralPath (Join-Path $RepoRoot 'dashboard/index.html') -Destination (Join-Path $fixtureRepo 'dashboard/index.html') -Force
+    New-Item -ItemType Directory -Path $fixtureRepo, $fakeHome, $fakeState -Force | Out-Null
+    Copy-Item -LiteralPath (Join-Path $RepoRoot 'dashboard') -Destination $fixtureRepo -Recurse -Force
+    Get-ChildItem -LiteralPath (Join-Path $fixtureRepo 'dashboard') -Directory -Recurse -Filter '__pycache__' | Remove-Item -Recurse -Force -ErrorAction SilentlyContinue
     Set-TestFile -Path (Join-Path $fixtureRepo 'README.md') -Content "# Fixture Repo`n"
     Set-TestFile -Path (Join-Path $fixtureRepo 'STATUS.md') -Content "# Project Status`n`nLast updated: 2026-11-25.`n`n## Open items`n`n- **Sample item.** Fixture summary.`n"
 
@@ -161,6 +161,15 @@ try {
     $baseUrl = ([string]$serverInfo.url).TrimEnd('/')
     $rootResponse = Invoke-WebRequest -Uri "$baseUrl/" -Method Get -TimeoutSec 5
     Assert-TestCondition ($rootResponse.StatusCode -eq 200 -and $rootResponse.Content -match 'ai-agent-dotfiles' -and (-not $rootResponse.Content.Contains('__DASHBOARD_TOKEN__'))) 'GET / returns HTML with injected session token'
+
+    $cssResponse = Invoke-WebRequest -Uri "$baseUrl/static/app.css" -Method Get -TimeoutSec 5
+    Assert-TestCondition ($cssResponse.StatusCode -eq 200 -and $cssResponse.Headers['Content-Type'] -match 'text/css' -and $cssResponse.Headers['X-Content-Type-Options'] -eq 'nosniff' -and $cssResponse.Headers['Cache-Control'] -eq 'no-store' -and $cssResponse.Content -match ':root') 'GET /static/app.css returns CSS with security headers'
+
+    $jsResponse = Invoke-WebRequest -Uri "$baseUrl/static/app.js" -Method Get -TimeoutSec 5
+    Assert-TestCondition ($jsResponse.StatusCode -eq 200 -and $jsResponse.Headers['Content-Type'] -match 'javascript' -and $jsResponse.Headers['X-Content-Type-Options'] -eq 'nosniff' -and $jsResponse.Headers['Cache-Control'] -eq 'no-store' -and $jsResponse.Content -match 'csrfToken') 'GET /static/app.js returns JS with security headers'
+
+    $rawTraversalStatus = & $pythonPath -B -c "import http.client; c=http.client.HTTPConnection('127.0.0.1', $($serverInfo.port), timeout=5); c.request('GET', '/static/../server.py'); r=c.getresponse(); print(r.status); c.close()"
+    Assert-TestCondition ($LASTEXITCODE -eq 0 -and ([string]$rawTraversalStatus).Trim() -eq '404') 'GET /static/../server.py is rejected with HTTP 404'
 
     $health = Invoke-RestMethod -Uri "$baseUrl/api/health" -Method Get -TimeoutSec 5
     Assert-TestCondition ($health.ok -eq $true -and [int]$health.port -eq [int]$serverInfo.port) 'GET /api/health returns ok and matching port'

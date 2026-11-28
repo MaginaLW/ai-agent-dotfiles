@@ -262,6 +262,86 @@ function Assert-TreeNoReparse {
     }
 }
 
+function Invoke-BoundedProcess {
+    <#
+    .SYNOPSIS
+        Runs an external process with async stdout/stderr draining and bounded timeout.
+    #>
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)] [string] $FilePath,
+        [AllowEmptyCollection()] [string[]] $Arguments = @(),
+        [string] $WorkingDirectory,
+        [System.Collections.IDictionary] $Environment,
+        [ValidateRange(1, 86400)] [int] $TimeoutSeconds = 120,
+        [string] $TimeoutMessage,
+        [switch] $CloseStdIn
+    )
+
+    $info = [System.Diagnostics.ProcessStartInfo]::new($FilePath)
+    foreach ($arg in @($Arguments)) {
+        if ($null -ne $arg) { $info.ArgumentList.Add([string]$arg) }
+    }
+    if (-not [string]::IsNullOrWhiteSpace($WorkingDirectory)) {
+        $info.WorkingDirectory = $WorkingDirectory
+    }
+    $info.UseShellExecute = $false
+    $info.RedirectStandardOutput = $true
+    $info.RedirectStandardError = $true
+    if ($CloseStdIn) {
+        $info.RedirectStandardInput = $true
+    }
+    if ($null -ne $Environment) {
+        foreach ($key in $Environment.Keys) {
+            $val = $Environment[$key]
+            if ($null -eq $val) {
+                $null = $info.Environment.Remove([string]$key)
+            }
+            else {
+                $info.Environment[[string]$key] = [string]$val
+            }
+        }
+    }
+
+    $process = [System.Diagnostics.Process]::Start($info)
+    if ($null -eq $process) {
+        throw "Failed to start process: $FilePath"
+    }
+    try {
+        if ($CloseStdIn) {
+            $process.StandardInput.Close()
+        }
+        $stdoutTask = $process.StandardOutput.ReadToEndAsync()
+        $stderrTask = $process.StandardError.ReadToEndAsync()
+        $timeoutMs = $TimeoutSeconds * 1000
+        if (-not $process.WaitForExit($timeoutMs)) {
+            try { $process.Kill($true) } catch { }
+            if (-not [string]::IsNullOrWhiteSpace($TimeoutMessage)) {
+                throw $TimeoutMessage
+            }
+            $null = $process.WaitForExit(5000)
+            $outText = if ($stdoutTask.Wait(2000)) { $stdoutTask.GetAwaiter().GetResult() } else { '' }
+            $errText = if ($stderrTask.Wait(2000)) { $stderrTask.GetAwaiter().GetResult() } else { '' }
+            return @{
+                ExitCode = -1
+                StdOut   = $outText
+                StdErr   = $errText
+                TimedOut = $true
+            }
+        }
+        $process.WaitForExit()
+        return @{
+            ExitCode = $process.ExitCode
+            StdOut   = $stdoutTask.GetAwaiter().GetResult()
+            StdErr   = $stderrTask.GetAwaiter().GetResult()
+            TimedOut = $false
+        }
+    }
+    finally {
+        $process.Dispose()
+    }
+}
+
 function Invoke-SecretScanGate {
     # Runs scripts/scan-secrets.ps1 under the given repository root in a child pwsh and
     # throws on failure. Callers decide when it runs (before writes, or after with a revert).

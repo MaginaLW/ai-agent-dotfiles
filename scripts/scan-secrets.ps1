@@ -147,29 +147,12 @@ function Invoke-GitleaksScan {
     $arguments = @('detect', '--no-git', '--source', $ScanRoot, '--redact', '--config', $ConfigPath)
     $gitleaks = Get-PinnedToolExecutable -LockPath $LockPath
     Write-Host "Running pinned gitleaks from $($gitleaks.Executable) against a filtered copy of $InputCount files."
-    $startInfo = [System.Diagnostics.ProcessStartInfo]::new($gitleaks.Executable)
-    foreach ($argument in $arguments) { $startInfo.ArgumentList.Add($argument) }
-    $startInfo.UseShellExecute = $false
-    $startInfo.RedirectStandardOutput = $true
-    $startInfo.RedirectStandardError = $true
-    $gitleaksProcess = [System.Diagnostics.Process]::Start($startInfo)
-    try {
-        $stdoutTask = $gitleaksProcess.StandardOutput.ReadToEndAsync()
-        $stderrTask = $gitleaksProcess.StandardError.ReadToEndAsync()
-        if (-not $gitleaksProcess.WaitForExit(120000)) {
-            $gitleaksProcess.Kill($true)
-            throw 'gitleaks-timeout: the pinned scanner did not finish within 120 seconds.'
-        }
-        $gitleaksProcess.WaitForExit()
-        $output = $stdoutTask.GetAwaiter().GetResult() + $stderrTask.GetAwaiter().GetResult()
-        if (-not [string]::IsNullOrWhiteSpace($output)) {
-            Write-Host $output.TrimEnd()
-        }
-        return [pscustomobject]@{ Failed = ($gitleaksProcess.ExitCode -ne 0) }
+    $res = Invoke-BoundedProcess -FilePath $gitleaks.Executable -Arguments $arguments -TimeoutSeconds 120 -TimeoutMessage 'gitleaks-timeout: the pinned scanner did not finish within 120 seconds.'
+    $output = $res.StdOut + $res.StdErr
+    if (-not [string]::IsNullOrWhiteSpace($output)) {
+        Write-Host $output.TrimEnd()
     }
-    finally {
-        if ($null -ne $gitleaksProcess) { $gitleaksProcess.Dispose() }
-    }
+    return [pscustomobject]@{ Failed = ($res.ExitCode -ne 0) }
 }
 
 function Invoke-FallbackScan {

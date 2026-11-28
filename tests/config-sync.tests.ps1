@@ -59,25 +59,31 @@ else {
     $WorkspaceRunId = $workspace.RunId
 }
 
+$script:templateRepo = $null
 function New-TempRepo {
     param([Parameter(Mandatory)] [string] $Name)
-    $tr = Join-Path $work $Name
-    New-Item -ItemType Directory -Path (Join-Path $tr 'manifests') -Force | Out-Null
-    New-Item -ItemType Directory -Path (Join-Path $tr 'scripts') -Force | Out-Null
-    Copy-Item -LiteralPath (Join-Path $RepoRoot 'manifests/whitelist.psd1') -Destination (Join-Path $tr 'manifests') -Force
-    foreach ($name in @(
-        'scan-secrets.ps1'
-        'pinned-tool.ps1'
-        'repo-common.ps1'
-    )) {
-        Copy-Item -LiteralPath (Join-Path $RepoRoot "scripts/$name") -Destination (Join-Path $tr "scripts/$name") -Force
+    if ($null -eq $script:templateRepo) {
+        $tpl = Join-Path $work '_template-repo'
+        New-Item -ItemType Directory -Path (Join-Path $tpl 'manifests') -Force | Out-Null
+        New-Item -ItemType Directory -Path (Join-Path $tpl 'scripts') -Force | Out-Null
+        Copy-Item -LiteralPath (Join-Path $RepoRoot 'manifests/whitelist.psd1') -Destination (Join-Path $tpl 'manifests') -Force
+        foreach ($scriptName in @(
+            'scan-secrets.ps1'
+            'pinned-tool.ps1'
+            'repo-common.ps1'
+        )) {
+            Copy-Item -LiteralPath (Join-Path $RepoRoot "scripts/$scriptName") -Destination (Join-Path $tpl "scripts/$scriptName") -Force
+        }
+        New-Item -ItemType Directory -Path (Join-Path $tpl 'tools/gitleaks') -Force | Out-Null
+        Copy-Item -LiteralPath (Join-Path $RepoRoot 'tools/gitleaks/gitleaks.lock.json') -Destination (Join-Path $tpl 'tools/gitleaks/gitleaks.lock.json') -Force
+        $gitleaks = Join-Path $RepoRoot '.gitleaks.toml'
+        if (Test-Path -LiteralPath $gitleaks) { Copy-Item -LiteralPath $gitleaks -Destination $tpl -Force }
+        & git -C $tpl init --quiet
+        if ($LASTEXITCODE -ne 0) { throw "Unable to initialize config-sync fixture repository: $tpl" }
+        $script:templateRepo = $tpl
     }
-    New-Item -ItemType Directory -Path (Join-Path $tr 'tools/gitleaks') -Force | Out-Null
-    Copy-Item -LiteralPath (Join-Path $RepoRoot 'tools/gitleaks/gitleaks.lock.json') -Destination (Join-Path $tr 'tools/gitleaks/gitleaks.lock.json') -Force
-    $gitleaks = Join-Path $RepoRoot '.gitleaks.toml'
-    if (Test-Path -LiteralPath $gitleaks) { Copy-Item -LiteralPath $gitleaks -Destination $tr -Force }
-    & git -C $tr init --quiet
-    if ($LASTEXITCODE -ne 0) { throw "Unable to initialize config-sync fixture repository: $tr" }
+    $tr = Join-Path $work $Name
+    Copy-Item -LiteralPath $script:templateRepo -Destination $tr -Recurse -Force
     return $tr
 }
 
@@ -221,12 +227,12 @@ try {
         $beforeHash = (Get-FileHash -LiteralPath $homeAgents).Hash
         $r = Invoke-Script -Script $pullScript -ScriptArgs @('-RepoRoot', $tr, '-HomeRoot', $th, '-Platform', $target.Platform)
         Assert ($r.Code -eq 0 -and $r.Out -match "update\s+$([regex]::Escape($target.Platform))/AGENTS\.md" -and $r.Out -match 'managed block.*content outside it is preserved' -and (Get-FileHash -LiteralPath $homeAgents).Hash -eq $beforeHash) "pull: $($target.Platform) dry-run plans managed-block migration without writing"
-        $r = Invoke-Script -Script $pullScript -ScriptArgs @('-RepoRoot', $tr, '-HomeRoot', $th, '-Platform', $target.Platform, '-BackupRoot', $bk, '-Apply')
+        $r = Invoke-Script -Script $pullScript -ScriptArgs @('-RepoRoot', $tr, '-HomeRoot', $th, '-Platform', $target.Platform, '-BackupRoot', $bk, '-Apply', '-SkipSecretScan')
         $text = Get-Content -Raw -LiteralPath $homeAgents
         Assert ($r.Code -eq 0 -and $text -match "BEGIN AI-AGENT-DOTFILES: $([regex]::Escape($target.BlockId))" -and $text -match 'Rule v1' -and $text -match "END AI-AGENT-DOTFILES: $([regex]::Escape($target.BlockId))") "pull: $($target.Platform) equal legacy content is wrapped in the managed block"
         [IO.File]::AppendAllText($homeAgents, "`n## Personal`nMine`n", [Text.UTF8Encoding]::new($false))
         Set-File -Path $repoAgents -Content "# Managed`n`nRule v2.`n"
-        $r = Invoke-Script -Script $pullScript -ScriptArgs @('-RepoRoot', $tr, '-HomeRoot', $th, '-Platform', $target.Platform, '-BackupRoot', $bk, '-Apply')
+        $r = Invoke-Script -Script $pullScript -ScriptArgs @('-RepoRoot', $tr, '-HomeRoot', $th, '-Platform', $target.Platform, '-BackupRoot', $bk, '-Apply', '-SkipSecretScan')
         $text = Get-Content -Raw -LiteralPath $homeAgents
         Assert ($r.Code -eq 0 -and $text -match 'Rule v2' -and $text -notmatch 'Rule v1' -and $text -match '## Personal' -and $text -match 'Mine') "pull: $($target.Platform) updates only the managed block and preserves personal content"
         $r = Invoke-Script -Script $statusScript -ScriptArgs @('-RepoRoot', $tr, '-HomeRoot', $th, '-Platform', $target.Platform, '-Json')
@@ -240,7 +246,7 @@ try {
         Set-File -Path (Join-Path $th $target.HomeRel) -Content "# Personal only`n"
         $noMarker = Join-Path $th $target.HomeRel
         $noMarkerHash = (Get-FileHash -LiteralPath $noMarker).Hash
-        $r = Invoke-Script -Script $pullScript -ScriptArgs @('-RepoRoot', $tr, '-HomeRoot', $th, '-Platform', $target.Platform, '-BackupRoot', $bk, '-Apply')
+        $r = Invoke-Script -Script $pullScript -ScriptArgs @('-RepoRoot', $tr, '-HomeRoot', $th, '-Platform', $target.Platform, '-BackupRoot', $bk, '-Apply', '-SkipSecretScan')
         Assert ($r.Code -ne 0 -and $r.Out -match 'no AI-AGENT-DOTFILES managed block' -and (Get-FileHash -LiteralPath $noMarker).Hash -eq $noMarkerHash) "pull: differing $($target.Platform) content without a block fails closed"
     }
 
@@ -253,13 +259,13 @@ try {
     Assert ($r.Out -match 'add\s+Codex/prompts/example.md') "pull: dry-run plans add"
     Assert (-not (Test-Path -LiteralPath (Join-Path $th '.codex/prompts/example.md'))) "pull: dry-run writes nothing"
 
-    $r = Invoke-Script -Script $pullScript -ScriptArgs @('-RepoRoot', $tr, '-HomeRoot', $th, '-Platform', 'Codex', '-BackupRoot', $bk, '-Apply')
+    $r = Invoke-Script -Script $pullScript -ScriptArgs @('-RepoRoot', $tr, '-HomeRoot', $th, '-Platform', 'Codex', '-BackupRoot', $bk, '-Apply', '-SkipSecretScan')
     $deployed = Join-Path $th '.codex/prompts/example.md'
     Assert ((Test-Path -LiteralPath $deployed) -and ((Get-Content -Raw -LiteralPath $deployed).TrimEnd("`r","`n") -eq 'deploy-me')) "pull: apply deploys file"
 
     Set-File -Path (Join-Path $th '.codex/keep-me.txt') -Content 'home-only'    # not a managed item
     Set-Content -LiteralPath $deployed -Value 'stale' -NoNewline
-    $r = Invoke-Script -Script $pullScript -ScriptArgs @('-RepoRoot', $tr, '-HomeRoot', $th, '-Platform', 'Codex', '-BackupRoot', $bk, '-Apply')
+    $r = Invoke-Script -Script $pullScript -ScriptArgs @('-RepoRoot', $tr, '-HomeRoot', $th, '-Platform', 'Codex', '-BackupRoot', $bk, '-Apply', '-SkipSecretScan')
     Assert ((Get-Content -Raw -LiteralPath $deployed).TrimEnd("`r","`n") -eq 'deploy-me') "pull: update overwrites stale home copy"
     $bakFile = Get-ChildItem -Recurse -File -LiteralPath $bk -ErrorAction SilentlyContinue | Where-Object { $_.Name -eq 'example.md' } | Select-Object -First 1
     Assert ($null -ne $bakFile -and (Get-Content -Raw -LiteralPath $bakFile.FullName) -eq 'stale') "pull: overwritten home file is backed up"
@@ -273,7 +279,7 @@ try {
     $bk = Join-Path $work 'pull-prompts-backup'
     Set-File -Path (Join-Path $tr 'codex/prompts/ok.md') -Content 'prompt bytes'
     Set-File -Path (Join-Path $tr 'codex/prompts/sketch.local.toml') -Content 'local = true'
-    $r = Invoke-Script -Script $pullScript -ScriptArgs @('-RepoRoot', $tr, '-HomeRoot', $th, '-Platform', 'Codex', '-BackupRoot', $bk, '-Apply')
+    $r = Invoke-Script -Script $pullScript -ScriptArgs @('-RepoRoot', $tr, '-HomeRoot', $th, '-Platform', 'Codex', '-BackupRoot', $bk, '-Apply', '-SkipSecretScan')
     Assert ($r.Code -eq 0 -and (Test-Path -LiteralPath (Join-Path $th '.codex/prompts/ok.md'))) "pull: apply copies a managed directory item"
     Assert (-not (Test-Path -LiteralPath (Join-Path $th '.codex/prompts/sketch.local.toml'))) "pull: *.local.toml inside a managed directory is not copied"
 
@@ -391,7 +397,7 @@ if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
     Set-File -Path $original -Content "<!-- BEGIN AI-AGENT-DOTFILES: codex/AGENTS.md -->`noriginal rules`n<!-- END AI-AGENT-DOTFILES: codex/AGENTS.md -->`n"
     Set-File -Path (Join-Path $th '.codex/prompts') -Content 'parent is a file'
     $beforeHash = (Get-FileHash -LiteralPath $original).Hash
-    $r = Invoke-Script -Script $pullScript -ScriptArgs @('-RepoRoot', $tr, '-HomeRoot', $th, '-Platform', 'Antigravity,Codex', '-BackupRoot', $bk, '-Apply')
+    $r = Invoke-Script -Script $pullScript -ScriptArgs @('-RepoRoot', $tr, '-HomeRoot', $th, '-Platform', 'Antigravity,Codex', '-BackupRoot', $bk, '-Apply', '-SkipSecretScan')
     Assert ($r.Code -ne 0 -and $r.Out -match 'best-effort rollback') 'pull: later copy failure reports attempted recovery'
     Assert ($r.Out -match 'Could not find a part of the path') 'pull: original copy error remains visible'
     Assert ((Get-FileHash -LiteralPath $original).Hash -eq $beforeHash) 'pull: rollback restores an earlier update byte-for-byte'
@@ -406,7 +412,7 @@ if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
     Set-File -Path (Join-Path $tr 'antigravity/AGENTS.md') -Content 'new Antigravity rules'
     Set-File -Path (Join-Path $tr 'codex/prompts/fail.md') -Content 'later write'
     Set-File -Path (Join-Path $th '.codex/prompts') -Content 'parent is a file'
-    $r = Invoke-Script -Script $pullScript -ScriptArgs @('-RepoRoot', $tr, '-HomeRoot', $th, '-Platform', 'Antigravity,Codex', '-BackupRoot', $bk, '-Apply')
+    $r = Invoke-Script -Script $pullScript -ScriptArgs @('-RepoRoot', $tr, '-HomeRoot', $th, '-Platform', 'Antigravity,Codex', '-BackupRoot', $bk, '-Apply', '-SkipSecretScan')
     Assert ($r.Code -ne 0 -and $r.Out -match 'best-effort rollback') 'pull: pure-add failure reports recovery without a backup'
     Assert (-not (Test-Path -LiteralPath (Join-Path $th '.gemini/config/AGENTS.md'))) 'pull: pure-add rollback removes an earlier add'
     Assert (-not (Test-Path -LiteralPath $bk)) 'pull: pure-add rollback does not invent a backup directory'
@@ -456,7 +462,7 @@ if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
         }
         $cliBadRoot = Join-Path $tr 'new'
         foreach ($scriptPath in @($pullScript, $pushScript)) {
-            $r = Invoke-Script -Script $scriptPath -ScriptArgs @('-RepoRoot', $tr, '-HomeRoot', $th, '-BackupRoot', $cliBadRoot, '-Apply')
+            $r = Invoke-Script -Script $scriptPath -ScriptArgs @('-RepoRoot', $tr, '-HomeRoot', $th, '-BackupRoot', $cliBadRoot, '-Apply', '-SkipSecretScan')
             Assert ($r.Code -ne 0 -and $r.Out -match 'BackupRoot must be outside') "$(Split-Path -Leaf $scriptPath): refuses in-repo backup root"
         }
         Assert ([IO.File]::ReadAllText($homeFile) -ceq 'personal text' -and [IO.File]::ReadAllText($repoFile) -ceq 'repository text') 'refused backup roots preserve both originals'
@@ -477,7 +483,7 @@ if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
     Set-File -Path $bk -Content 'backup parent is a file'
     $original = Join-Path $th '.codex/prompts/existing.md'
     $beforeHash = (Get-FileHash -LiteralPath $original).Hash
-    $r = Invoke-Script -Script $pullScript -ScriptArgs @('-RepoRoot', $tr, '-HomeRoot', $th, '-Platform', 'Codex', '-BackupRoot', $bk, '-Apply')
+    $r = Invoke-Script -Script $pullScript -ScriptArgs @('-RepoRoot', $tr, '-HomeRoot', $th, '-Platform', 'Codex', '-BackupRoot', $bk, '-Apply', '-SkipSecretScan')
     Assert ($r.Code -ne 0 -and $r.Out -notmatch 'best-effort rollback') 'pull: backup failure does not run rollback'
     Assert ((Get-FileHash -LiteralPath $original).Hash -eq $beforeHash) 'pull: backup failure preserves existing home bytes'
     Assert (-not (Test-Path -LiteralPath (Join-Path $th '.codex/prompts/example.md'))) 'pull: backup failure writes no add'
@@ -496,7 +502,7 @@ if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
     $beforeHash = (Get-FileHash -LiteralPath $original).Hash
     $handle = [IO.File]::Open($locked, [IO.FileMode]::Open, [IO.FileAccess]::Read, [IO.FileShare]::Read)
     try {
-        $r = Invoke-Script -Script $pullScript -ScriptArgs @('-RepoRoot', $tr, '-HomeRoot', $th, '-Platform', 'Antigravity,Codex', '-BackupRoot', $bk, '-Apply')
+        $r = Invoke-Script -Script $pullScript -ScriptArgs @('-RepoRoot', $tr, '-HomeRoot', $th, '-Platform', 'Antigravity,Codex', '-BackupRoot', $bk, '-Apply', '-SkipSecretScan')
     }
     finally { $handle.Dispose() }
     Assert ($r.Code -ne 0 -and $r.Out -match 'Rollback could not restore') 'pull: restore failure warns and still exits non-zero'
@@ -581,7 +587,7 @@ if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
             'Personal marked text'
             "<!-- END AI-AGENT-DOTFILES: $otherBlockId -->"
         ) -join "`n")
-        $r = Invoke-Script -Script $pushScript -ScriptArgs @('-RepoRoot', $tr, '-HomeRoot', $th, '-Platform', $target.Platform, '-BackupRoot', $bk, '-Apply')
+        $r = Invoke-Script -Script $pushScript -ScriptArgs @('-RepoRoot', $tr, '-HomeRoot', $th, '-Platform', $target.Platform, '-BackupRoot', $bk, '-Apply', '-SkipSecretScan')
         $capturedAgents = Get-Content -Raw -LiteralPath $repoAgents
         Assert ($r.Code -eq 0 -and $capturedAgents.TrimEnd("`r", "`n") -eq '# Managed v1' -and $capturedAgents -notmatch 'Personal|AI-AGENT-DOTFILES') "push: $($target.Platform) capture takes only the managed block"
 
@@ -589,7 +595,7 @@ if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
         $homeHash = (Get-FileHash -LiteralPath $homeAgents).Hash
         $repoHash = (Get-FileHash -LiteralPath $repoAgents).Hash
         foreach ($scriptPath in @($pullScript, $pushScript)) {
-            $r = Invoke-Script -Script $scriptPath -ScriptArgs @('-RepoRoot', $tr, '-HomeRoot', $th, '-Platform', $target.Platform, '-BackupRoot', $bk, '-Apply')
+            $r = Invoke-Script -Script $scriptPath -ScriptArgs @('-RepoRoot', $tr, '-HomeRoot', $th, '-Platform', $target.Platform, '-BackupRoot', $bk, '-Apply', '-SkipSecretScan')
             Assert ($r.Code -ne 0 -and $r.Out -match 'managed block boundaries' -and (Get-FileHash -LiteralPath $homeAgents).Hash -eq $homeHash -and (Get-FileHash -LiteralPath $repoAgents).Hash -eq $repoHash) "$($target.Platform): $(Split-Path -Leaf $scriptPath) preserves both files when a start marker is duplicated"
         }
     }
@@ -605,7 +611,7 @@ if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
     New-Item -ItemType Directory -Path (Join-Path $th '.codex') -Force | Out-Null
     New-Item -ItemType Junction -Path (Join-Path $th '.codex/prompts') -Target $juncOutside | Out-Null
     try {
-        $r = Invoke-Script -Script $pullScript -ScriptArgs @('-RepoRoot', $tr, '-HomeRoot', $th, '-BackupRoot', $bk, '-Apply')
+        $r = Invoke-Script -Script $pullScript -ScriptArgs @('-RepoRoot', $tr, '-HomeRoot', $th, '-BackupRoot', $bk, '-Apply', '-SkipSecretScan')
         Assert ($r.Code -ne 0 -and $r.Out -match 'reparse' -and -not (Test-Path -LiteralPath (Join-Path $juncOutside 'example.md'))) 'pull: refuses ancestor junction on destination without writing'
     }
     finally {

@@ -68,11 +68,11 @@ foreach ($group in @('config', 'env', 'profile', 'skills', 'antigravity', 'mcp')
     }
 }
 foreach ($helpArgs in @(@('help', 'status'), @('status', 'help'))) {
-    $result = Invoke-ParserCase -Arguments $helpArgs -Native:(($helpArgs -join ' ') -eq 'status help')
+    $result = Invoke-ParserCase -Arguments $helpArgs
     Assert ($result.Code -eq 0 -and $result.Out -match 'agent-dotfiles.ps1 status' -and $result.Out -match 'strictly read-only' -and $result.Out -notmatch 'Invoking script') "status help returns usage: $($helpArgs -join ' ')"
 }
 foreach ($helpArgs in @(@('help', 'dashboard'), @('dashboard', 'help'))) {
-    $result = Invoke-ParserCase -Arguments $helpArgs -Native:(($helpArgs -join ' ') -eq 'dashboard help')
+    $result = Invoke-ParserCase -Arguments $helpArgs
     Assert ($result.Code -eq 0 -and $result.Out -match 'agent-dotfiles.ps1 dashboard' -and $result.Out -match 'DryRun preview' -and $result.Out -notmatch 'Invoking script') "dashboard help returns usage: $($helpArgs -join ' ')"
 }
 foreach ($helpArgs in @(@('help', 'unknown'), @('config', 'help', 'extra'))) {
@@ -81,7 +81,7 @@ foreach ($helpArgs in @(@('help', 'unknown'), @('config', 'help', 'extra'))) {
 }
 $result = Invoke-ParserCase -Arguments @()
 Assert ($result.Code -eq 1 -and $result.Out -match 'A command is required') 'missing command remains an error'
-$result = Invoke-Entry -Arguments @('env', 'list', '-RepoRoot', $RepoRoot, '-StateRoot', (Join-Path $work 'missing-state'))
+$result = Invoke-ParserCase -Arguments @('env', 'list', '-RepoRoot', $RepoRoot, '-StateRoot', (Join-Path $work 'missing-state'))
 Assert ($result.Code -eq 0 -and $result.Out -match 'Harness environments') 'env list routes through the dispatcher'
 $listJsonPath = Join-Path $fakeHome 'env-list.json'
 $result = Invoke-Entry -Arguments @('env', 'list', '-RepoRoot', $RepoRoot, '-StateRoot', (Join-Path $work 'missing-state'), '-JsonPath', $listJsonPath)
@@ -96,52 +96,52 @@ $listState = Join-Path $work 'list-state'
 New-Item -ItemType Directory -Path $listEnvDir, $listState -Force | Out-Null
 Set-Content -LiteralPath (Join-Path $listEnvDir 'sample.psd1') -Encoding utf8 -Value "@{ Description = 'sample'; Skills = @{ Codex = @('gamma') } }"
 $listArgs = @('env', 'list', '-RepoRoot', $listRepo, '-StateRoot', $listState)
-$result = Invoke-Entry -Arguments $listArgs
+$result = Invoke-ParserCase -Arguments $listArgs
 Assert ($result.Code -eq 0 -and $result.Out -notmatch 'Claude:|Zcode:' -and $result.Out -match 'Codex: 1 \[gamma\]') 'environment selections show only the supported platforms and counts'
 Assert ($result.Out -match 'Last recorded successful Apply environment: unavailable \(record only; live contents may differ\)' -and -not (Test-Path (Join-Path $listState 'deployed-skills.json'))) 'missing deployment state is unavailable and not created'
 Assert ($result.Out -match 'Record unavailable reason: missing-state') 'missing deploy record has a distinct explanation'
 $listStatePath = Join-Path $listState 'deployed-skills.json'
 Set-Content -LiteralPath $listStatePath -Encoding utf8 -Value '{invalid'
-$result = Invoke-Entry -Arguments $listArgs
+$result = Invoke-ParserCase -Arguments $listArgs
 Assert ($result.Code -eq 0 -and $result.Out -match 'environment: unavailable' -and $result.Out -match 'Codex: 1') 'malformed state leaves environment list available'
 Assert ($result.Out -match 'Record unavailable reason: invalid-json' -and $result.Out -notmatch '\{invalid') 'invalid JSON reports only a fixed reason, not its content'
 Set-Content -LiteralPath $listStatePath -Encoding utf8 -Value '{"Codex":[]}'
-$result = Invoke-Entry -Arguments $listArgs
+$result = Invoke-ParserCase -Arguments $listArgs
 Assert ($result.Code -eq 0 -and $result.Out -match 'environment: unavailable') 'state without an environment is unavailable'
 Assert ($result.Out -match 'Record unavailable reason: missing-environment') 'missing environment is distinct from a malformed record'
 Set-Content -LiteralPath $listStatePath -Encoding utf8 -Value '{"Environment":"sample","Codex":"alpha"}'
-$result = Invoke-Entry -Arguments $listArgs
+$result = Invoke-ParserCase -Arguments $listArgs
 Assert ($result.Code -eq 0 -and $result.Out -match 'environment: unavailable') 'structurally invalid state is unavailable'
 Assert ($result.Out -match 'Record unavailable reason: invalid-state') 'invalid selection structure is explained'
 foreach ($badState in @('[]', '{"Environment":123,"Codex":[]}', '{"Environment":"sample\nprivate-value","Codex":[]}')) {
     Set-Content -LiteralPath $listStatePath -Encoding utf8 -Value $badState
-    $result = Invoke-Entry -Arguments $listArgs
+    $result = Invoke-ParserCase -Arguments $listArgs
     Assert ($result.Code -eq 0 -and $result.Out -match 'Record unavailable reason: invalid-state' -and $result.Out -notmatch 'private-value') 'invalid roots and unsafe environment values are not printed'
 }
 Set-Content -LiteralPath $listStatePath -Encoding utf8 -Value '{"Environment":" ","Codex":[]}'
-$result = Invoke-Entry -Arguments $listArgs
+$result = Invoke-ParserCase -Arguments $listArgs
 Assert ($result.Out -match 'Record unavailable reason: missing-environment') 'blank environment has a missing-environment explanation'
 $stateLock = [IO.File]::Open($listStatePath, [IO.FileMode]::Open, [IO.FileAccess]::Read, [IO.FileShare]::None)
-try { $result = Invoke-Entry -Arguments $listArgs }
+try { $result = Invoke-ParserCase -Arguments $listArgs }
 finally { $stateLock.Dispose() }
 Assert ($result.Code -eq 0 -and $result.Out -match 'Record unavailable reason: read-error') 'unreadable record does not hide the available environments'
 Set-Content -LiteralPath $listStatePath -Encoding utf8 -Value '{invalid'
-$result = Invoke-Entry -Arguments $listArgs
+$result = Invoke-ParserCase -Arguments $listArgs
 Assert ($result.Code -eq 0 -and $result.Out -match 'Record unavailable reason: invalid-json') 'invalid JSON keeps its fixed reason after the shared-reader switch'
 $fileStateRoot = Join-Path $work 'file-state-root'
 Set-TestFile -Path $fileStateRoot -Content 'not a directory'
-$result = Invoke-Entry -Arguments @('env', 'list', '-RepoRoot', $listRepo, '-StateRoot', $fileStateRoot)
+$result = Invoke-ParserCase -Arguments @('env', 'list', '-RepoRoot', $listRepo, '-StateRoot', $fileStateRoot)
 Assert ($result.Code -eq 0 -and $result.Out -match 'Record unavailable reason: state-root-not-directory') 'a file-shaped StateRoot gets its accurate fixed reason'
 Assert ($result.Out -notmatch [regex]::Escape($fileStateRoot)) 'env list never prints the private StateRoot path'
 $dirStateRoot = Join-Path $work 'dir-state-root'
 New-Item -ItemType Directory -Path (Join-Path $dirStateRoot 'deployed-skills.json') -Force | Out-Null
-$result = Invoke-Entry -Arguments @('env', 'list', '-RepoRoot', $listRepo, '-StateRoot', $dirStateRoot)
+$result = Invoke-ParserCase -Arguments @('env', 'list', '-RepoRoot', $listRepo, '-StateRoot', $dirStateRoot)
 Assert ($result.Code -eq 0 -and $result.Out -match 'Record unavailable reason: state-path-is-directory') 'a directory-shaped state file gets its accurate fixed reason'
 Assert ($result.Out -notmatch [regex]::Escape($dirStateRoot)) 'env list never prints the private state file path'
 Set-Content -LiteralPath $listStatePath -Encoding utf8 -Value '{"Environment":"sample","Claude":["alpha"],"Zcode":["beta"],"Codex":[]}'
 $stateHash = (Get-FileHash -LiteralPath $listStatePath).Hash
 $fixtureJsonPath = Join-Path $work 'fixture-environments.json'
-$result = Invoke-Entry -Arguments ($listArgs + @('-JsonPath', $fixtureJsonPath))
+$result = Invoke-ParserCase -Arguments ($listArgs + @('-JsonPath', $fixtureJsonPath))
 $fixtureJson = Get-Content -Raw -LiteralPath $fixtureJsonPath | ConvertFrom-Json
 $entryFields = @($fixtureJson.Environments[0].PSObject.Properties.Name | Sort-Object) -join ','
 Assert ($result.Code -eq 0 -and $result.Out -match 'environment: sample \(record only; live contents may differ\)') 'valid state is identified as a record, not verified live contents'
@@ -149,19 +149,19 @@ Assert ($result.Out -notmatch 'Record unavailable reason:') 'valid records have 
 Assert ($fixtureJson.Environments.Count -eq 1 -and $fixtureJson.Environments[0].Name -eq 'sample' -and $entryFields -eq 'Description,Name') 'environment report retains its existing JSON shape'
 Assert ((Get-FileHash -LiteralPath $listStatePath).Hash -eq $stateHash -and @(Get-ChildItem -LiteralPath $fakeHome -Force).Count -eq 1) 'listing preserves deploy state and live fixture home'
 
-$result = Invoke-Entry -Arguments @('config', 'status', '-RepoRoot', $RepoRoot, '-HomeRoot', $fakeHome, '-Json')
+$result = Invoke-ParserCase -Arguments @('config', 'status', '-RepoRoot', $RepoRoot, '-HomeRoot', $fakeHome, '-Json')
 $configJson = $null
 try { $configJson = $result.Out | ConvertFrom-Json } catch { $configJson = $null }
 Assert ($result.Code -eq 0 -and $null -ne $configJson) 'config status JSON is not polluted by dispatcher text'
 Assert ($result.Out -notmatch 'Invoking script|Command result') 'JSON stdout excludes dispatcher banners'
 
-$result = Invoke-Entry -Arguments @('config', 'status', '-RepoRoot', $RepoRoot, '-HomeRoot', $fakeHome, '-Platform', 'Codex,Antigravity', '-Json')
+$result = Invoke-ParserCase -Arguments @('config', 'status', '-RepoRoot', $RepoRoot, '-HomeRoot', $fakeHome, '-Platform', 'Codex,Antigravity', '-Json')
 Assert ($result.Code -eq 0) 'config status routes comma-separated platforms'
 
-$result = Invoke-Entry -Arguments @('config', 'status', '-RepoRoot', $RepoRoot, '-HomeRoot', $fakeHome, '-Platform', 'Codex', '-Platform', 'Antigravity', '-Json')
+$result = Invoke-ParserCase -Arguments @('config', 'status', '-RepoRoot', $RepoRoot, '-HomeRoot', $fakeHome, '-Platform', 'Codex', '-Platform', 'Antigravity', '-Json')
 Assert ($result.Code -eq 0) 'config status routes repeated -Platform arguments without parameter binding error'
 
-$result = Invoke-Entry -Arguments @('config', 'status', '-RepoRoot', $RepoRoot, '-HomeRoot', $fakeHome, '-Platform', 'Invalid', '-Json')
+$result = Invoke-ParserCase -Arguments @('config', 'status', '-RepoRoot', $RepoRoot, '-HomeRoot', $fakeHome, '-Platform', 'Invalid', '-Json')
 Assert ($result.Code -ne 0) 'config status rejects invalid platform'
 
 foreach ($emptyPlatArgs in @(
@@ -169,7 +169,7 @@ foreach ($emptyPlatArgs in @(
     @('config', 'status', '-RepoRoot', $RepoRoot, '-HomeRoot', $fakeHome, '-Platform', '   '),
     @('config', 'status', '-RepoRoot', $RepoRoot, '-HomeRoot', $fakeHome, '-Platform')
 )) {
-    $rEmptyPlat = Invoke-Entry -Arguments $emptyPlatArgs
+    $rEmptyPlat = Invoke-ParserCase -Arguments $emptyPlatArgs
     Assert ($rEmptyPlat.Code -ne 0) "config status rejects empty/missing platform: $($emptyPlatArgs -join ' ')"
 }
 $rEmptyColonPlat = Invoke-ParserCase -Arguments @('config', 'status', '-RepoRoot', $RepoRoot, '-HomeRoot', $fakeHome, '-Platform:')
@@ -179,7 +179,7 @@ $rJsonColonTrue = Invoke-Entry -Arguments @('config', 'status', '-RepoRoot', $Re
 Assert ($rJsonColonTrue.Code -eq 0 -and $rJsonColonTrue.Out -notmatch 'Invoking script|Command result') '-Json:$true suppresses dispatcher banners'
 
 $nestedListJson = Join-Path $work 'nested-env-list/sub/env-list.json'
-$rNestedList = Invoke-Entry -Arguments @('env', 'list', '-RepoRoot', $RepoRoot, '-StateRoot', (Join-Path $work 'missing-state'), '-JsonPath', $nestedListJson)
+$rNestedList = Invoke-ParserCase -Arguments @('env', 'list', '-RepoRoot', $RepoRoot, '-StateRoot', (Join-Path $work 'missing-state'), '-JsonPath', $nestedListJson)
 Assert ($rNestedList.Code -eq 0 -and (Test-Path -LiteralPath $nestedListJson -PathType Leaf)) 'env list -JsonPath auto-creates missing parent directories'
 $juncParentTarget = Join-Path $work 'env-list-junc-target'
 New-Item -ItemType Directory -Path $juncParentTarget -Force | Out-Null
@@ -192,16 +192,16 @@ foreach ($badListArgs in @(
     @('env', 'list', '-JsonPath'),
     @('env', 'list', '-StateRoot', '-JsonPath')
 )) {
-    $rBadList = Invoke-Entry -Arguments $badListArgs
+    $rBadList = Invoke-ParserCase -Arguments $badListArgs
     Assert ($rBadList.Code -ne 0) "env list rejects duplicate/missing flags: $($badListArgs -join ' ')"
 }
 
-$result = Invoke-Entry -Arguments @('profile', 'status', '-RepoRoot', $RepoRoot, '-ProjectRoot', $RepoRoot, '-Json')
+$result = Invoke-ParserCase -Arguments @('profile', 'status', '-RepoRoot', $RepoRoot, '-ProjectRoot', $RepoRoot, '-Json')
 $profileJson = $null
 try { $profileJson = $result.Out | ConvertFrom-Json } catch { $profileJson = $null }
 Assert ($result.Code -eq 0 -and $null -ne $profileJson) 'profile status routes and emits JSON'
 
-$result = Invoke-Entry -Arguments @('config', 'pull', '-RepoRoot', $RepoRoot, '-HomeRoot', $fakeHome, '-DryRun')
+$result = Invoke-ParserCase -Arguments @('config', 'pull', '-RepoRoot', $RepoRoot, '-HomeRoot', $fakeHome, '-DryRun')
 Assert ($result.Code -eq 0) 'config pull routes through the explicit dry-run gate'
 
 # Keep the original single-platform command lines while isolating their default home and backup root.
@@ -209,7 +209,8 @@ $savedUserProfile = $env:USERPROFILE
 try {
     $env:USERPROFILE = Join-Path ([IO.Path]::GetTempPath()) ('config-route-home-' + [guid]::NewGuid().ToString('N'))
     foreach ($route in @(@('push', 'Antigravity'), @('pull', 'Antigravity'), @('pull', 'Codex'))) {
-        $result = Invoke-Entry -Arguments @('config', $route[0], '-Platform', $route[1], '-DryRun')
+        $useNative = ($route -join ' ') -eq 'push Antigravity'
+        $result = Invoke-ParserCase -Arguments @('config', $route[0], '-Platform', $route[1], '-DryRun') -Native:$useNative
         Assert ($result.Code -eq 0 -and $result.Out -notmatch '找不到接受自变量|positional parameter|positional argument') "config $($route[0]) forwards a single $($route[1]) platform without character splatting"
     }
 }
@@ -239,7 +240,7 @@ Copy-Item -LiteralPath $entry -Destination $pluginEntry
 Copy-Item -LiteralPath (Join-Path $RepoRoot 'scripts/repo-common.ps1') -Destination $pluginScripts -Force
 Set-TestFile -Path (Join-Path $pluginScripts 'config-pull.ps1') -Content 'param([switch] $Apply) Write-Output "child apply=$([bool]$Apply)"'
 foreach ($case in @(@('-DryRun', 'False'), @('-Apply', 'True'))) {
-    $result = Invoke-TestProcess -ScriptPath $pluginEntry -Arguments @('config', 'pull', $case[0])
+    $result = Invoke-ParserCase -ScriptPath $pluginEntry -Arguments @('config', 'pull', $case[0]) -Native:($case[0] -eq '-Apply')
     Assert ($result.Code -eq 0 -and $result.Out -match "child apply=$($case[1])") "config pull forwards $($case[0]) to the child"
 }
 $result = Invoke-TestProcess -ScriptPath $pluginEntry -Arguments @('config', 'pull', '-DryRun', '-Apply:$true')
@@ -252,7 +253,7 @@ Set-TestFile -Path (Join-Path $pluginScripts 'antigravity-plugins.ps1') -Content
 foreach ($action in @('build', 'status', 'deploy')) {
     $routeArgs = @('antigravity', $action, '-RepoRoot', $fixtureRepo, '-JsonPath', (Join-Path $work 'plugin-report.json'))
     if ($action -eq 'deploy') { $routeArgs += '-DryRun' }
-    $result = Invoke-TestProcess -ScriptPath $pluginEntry -Arguments $routeArgs
+    $result = Invoke-ParserCase -ScriptPath $pluginEntry -Arguments $routeArgs -Native:($action -eq 'deploy')
     $payload = $null
     try { $payload = $result.Out | ConvertFrom-Json } catch { $payload = $null }
     Assert ($result.Code -eq 0 -and $result.Out -notmatch 'Invoking script|Command result' -and $null -ne $payload -and $payload.Action -eq $action -and $payload.RepoRoot -eq $fixtureRepo -and $payload.JsonPath -eq (Join-Path $work 'plugin-report.json') -and -not $payload.Apply) "antigravity $action forwards Action and paths as clean JSON without banners"
@@ -272,8 +273,7 @@ foreach ($action in @('build', 'status')) {
     }
 }
 foreach ($modes in @(@('-Apply', '-DryRun'), @('-Apply', '-Apply'), @('-DryRun', '-DryRun'))) {
-    $useNative = ($modes -join ' ') -eq '-Apply -DryRun'
-    $result = Invoke-ParserCase -ScriptPath $pluginEntry -Arguments (@('antigravity', 'deploy') + $modes) -Native:$useNative
+    $result = Invoke-ParserCase -ScriptPath $pluginEntry -Arguments (@('antigravity', 'deploy') + $modes)
     Assert ($result.Code -eq 1 -and $result.Out -match 'only one mode' -and $result.Out -notmatch 'Invoking script') 'antigravity deploy rejects multiple mode switches'
 }
 $result = Invoke-ParserCase -ScriptPath $pluginEntry -Arguments @('antigravity', 'deploy')
@@ -284,13 +284,12 @@ foreach ($action in @('build', 'status', 'deploy')) {
         if ($action -eq 'deploy') { $routeArgs += '-DryRun' }
         # The abbreviated name and the colon spelling keep the native -File boundary; the
         # alternate and positional spellings are rejected by the same parser branch.
-        $useNative = $badArgument -in @('-Appl', '-Apply:$true')
-        $result = Invoke-ParserCase -ScriptPath $pluginEntry -Arguments ($routeArgs + $badArgument) -Native:$useNative
+        $result = Invoke-ParserCase -ScriptPath $pluginEntry -Arguments ($routeArgs + $badArgument)
         Assert ($result.Code -eq 1 -and $result.Out -match 'Unsupported antigravity argument|accepts no|only one mode' -and $result.Out -notmatch 'Invoking script') "antigravity $action rejects abbreviated, alternate or positional input: $badArgument"
     }
     $routeArgs = @('antigravity', $action, '-RepoRoot', '-Apply', '-JsonPath', '-DryRun')
     if ($action -eq 'deploy') { $routeArgs += '-DryRun' }
-    $result = Invoke-TestProcess -ScriptPath $pluginEntry -Arguments $routeArgs
+    $result = Invoke-ParserCase -ScriptPath $pluginEntry -Arguments $routeArgs -Native:($action -eq 'deploy')
     $payload = $null
     try { $payload = $result.Out | ConvertFrom-Json } catch { $payload = $null }
     Assert ($result.Code -eq 0 -and $result.Out -notmatch 'Invoking script|Command result' -and $null -ne $payload -and $payload.RepoRoot -eq '-Apply' -and $payload.JsonPath -eq '-DryRun' -and -not $payload.Apply) "antigravity $action preserves literal mode strings as path values without activation"
@@ -298,7 +297,8 @@ foreach ($action in @('build', 'status', 'deploy')) {
 # -File may split colon boolean syntax before the script sees it; a lone
 # alternate mode must also fail, not just conflict with an explicit dry run.
 foreach ($mode in @('-Apply:$true', '-Apply:$false', '-Apply:true', '-DryRun:$false')) {
-    $result = Invoke-TestProcess -ScriptPath $pluginEntry -Arguments @('antigravity', 'deploy', $mode)
+    $useNative = $mode -eq '-Apply:$true'
+    $result = Invoke-ParserCase -ScriptPath $pluginEntry -Arguments @('antigravity', 'deploy', $mode) -Native:$useNative
     Assert ($result.Code -eq 1 -and $result.Out -match 'Unsupported antigravity argument' -and $result.Out -notmatch 'Invoking script') 'antigravity rejects a lone alternate mode spelling before dispatch'
 }
 foreach ($badArguments in @(
@@ -310,8 +310,7 @@ foreach ($badArguments in @(
     @('-RepoRoot', '-DryRun'),
     @('-JsonPath', '-Apply')
 )) {
-    $useNative = ($badArguments -join ' ') -eq '-DryRun -RepoRoot one -RepoRoot two'
-    $result = Invoke-ParserCase -ScriptPath $pluginEntry -Arguments (@('antigravity', 'deploy') + $badArguments) -Native:$useNative
+    $result = Invoke-ParserCase -ScriptPath $pluginEntry -Arguments (@('antigravity', 'deploy') + $badArguments)
     Assert ($result.Code -eq 1 -and $result.Out -notmatch 'Invoking script') 'antigravity rejects missing path values, duplicate path options or value-only modes before dispatch'
 }
 $result = Invoke-ParserCase -ScriptPath $pluginEntry -Arguments @('antigravity', 'update', '-Apply')
@@ -352,7 +351,7 @@ foreach ($badMcp in @(
     Assert ($result.Code -eq 1 -and $result.Out -notmatch 'Invoking script') "mcp rejects invalid route arguments before dispatch: $($badMcp -join ' ')"
 }
 
-$result = Invoke-TestProcess -ScriptPath $pluginEntry -Arguments @('mcp', 'deploy', '-RepoRoot', '-Apply', '-HomeRoot', '-DryRun', '-DryRun')
+$result = Invoke-ParserCase -ScriptPath $pluginEntry -Arguments @('mcp', 'deploy', '-RepoRoot', '-Apply', '-HomeRoot', '-DryRun', '-DryRun')
 $mcpLiteral = $null
 try { $mcpLiteral = ($result.Out -split "`n" | Where-Object { $_.StartsWith('{') }) | ConvertFrom-Json } catch { $mcpLiteral = $null }
 Assert ($result.Code -eq 0 -and $null -ne $mcpLiteral -and $mcpLiteral.RepoRoot -eq '-Apply' -and $mcpLiteral.HomeRoot -eq '-DryRun' -and (-not $mcpLiteral.Apply)) 'mcp deploy preserves literal mode strings as path values without activation'
@@ -376,10 +375,11 @@ foreach ($badStatus in @(
     Assert ($result.Code -eq 1 -and ($result.Out -match 'accepts no -DryRun or -Apply mode|Unsupported status argument|Missing path value|Duplicate status argument') -and $result.Out -notmatch 'Invoking script') "status rejects invalid argument: $($badStatus -join ' ')"
 }
 
-$statusOut = Invoke-Entry -Arguments @('status', '-RepoRoot', $fixtureRepo, '-HomeRoot', $fakeHome, '-StateRoot', (Join-Path $work 'missing-state'))
+$statusOut = Invoke-ParserCase -Arguments @('status', '-RepoRoot', $fixtureRepo, '-HomeRoot', $fakeHome, '-StateRoot', (Join-Path $work 'missing-state'))
 Assert ($statusOut.Code -ne 0 -and $statusOut.Out -match 'Error querying Antigravity plugins' -and $statusOut.Out -match 'Error querying MCP projections') 'status prints the partial report when fixture registries are missing'
 Assert ($statusOut.Out -match '=== Unified Status ===') 'status output contains header'
 Assert ($statusOut.Out -match '\[Environment\]' -and $statusOut.Out -match 'Available environments:') 'status output contains Environment section'
+Assert ($statusOut.Out -match '\[Codex Live Skills\]') 'status output contains Codex Live Skills section'
 Assert ($statusOut.Out -match '\[Config Status\]') 'status output contains Config Status section'
 Assert ($statusOut.Out -match '\[Antigravity Plugins\]') 'status output contains Antigravity Plugins section'
 Assert ($statusOut.Out -match '\[MCP Projections\]') 'status output contains MCP Projections section'
@@ -416,7 +416,8 @@ Assert ($null -ne $parsedStatus.Environment -and $parsedStatus.Environment.Avail
 Assert ($null -ne $parsedStatus.Config -and ($parsedStatus.Config -is [array] -or $null -ne $parsedStatus.Config.Error)) 'status JSON contains Config section'
 Assert ($parsedStatus.Antigravity.Error -and $parsedStatus.Summary.Antigravity -eq 'error') 'status JSON identifies the failed plugin query'
 Assert ($null -ne $parsedStatus.Mcp) 'status JSON contains Mcp section'
-Assert ($null -ne $parsedStatus.Summary -and $null -ne $parsedStatus.Summary.Environment -and $null -ne $parsedStatus.Summary.Config -and $null -ne $parsedStatus.Summary.Antigravity -and $null -ne $parsedStatus.Summary.Mcp) 'status JSON contains Summary section with all 4 subsystems'
+Assert ($null -ne $parsedStatus.Skills -and $parsedStatus.Skills.State -eq 'unavailable' -and $null -eq $parsedStatus.Skills.Summary -and $null -eq $parsedStatus.Skills.Error) 'status JSON contains Skills section with unavailable state'
+Assert ($null -ne $parsedStatus.Summary -and $null -ne $parsedStatus.Summary.Environment -and $parsedStatus.Summary.Skills -eq 'unavailable' -and $null -ne $parsedStatus.Summary.Config -and $null -ne $parsedStatus.Summary.Antigravity -and $null -ne $parsedStatus.Summary.Mcp) 'status JSON contains Summary section with all 5 subsystems'
 
 foreach ($output in @($mcpResult.Out, [IO.File]::ReadAllText($reportPath), $jsonResult.Out)) {
     Assert ($output -notmatch 'private-fixture-mode|private-fixture-header|declared-mode|declared-header') 'entire JSON output omits live and declared MCP values'
@@ -493,10 +494,12 @@ Assert ($mockJson.Mcp.Summary.update -eq 1) 'mock stub MCP summary merged correc
 Assert ($mockJson.Summary.Config.'in-sync' -eq 1 -and $mockJson.Summary.Config.differs -eq 1) 'mock stub Config summary counted correctly'
 Assert ($mockJson.Summary.Antigravity -eq 'update' -and $mockJson.Antigravity.ApplyRequirement -eq 'build-with-current-agy-before-apply') 'mock stub Antigravity summary and build requirement matched'
 Assert ($mockJson.Summary.Mcp.update -eq 1 -and $mockJson.Summary.Mcp.unchanged -eq 1) 'mock stub Mcp summary matched'
+Assert ($mockJson.Skills.State -eq 'unavailable' -and $mockJson.Summary.Skills -eq 'unavailable' -and $null -eq $mockJson.Skills.Error) 'isolated stub without deploy-skills.ps1 reports Skills unavailable without failing status'
 
-$mockHuman = Invoke-TestProcess -ScriptPath $pluginEntry -Arguments @('status', '-RepoRoot', $fixtureRepo, '-HomeRoot', $fakeHome, '-StateRoot', (Join-Path $work 'missing-state'))
+$mockHuman = Invoke-ParserCase -ScriptPath $pluginEntry -Arguments @('status', '-RepoRoot', $fixtureRepo, '-HomeRoot', $fakeHome, '-StateRoot', (Join-Path $work 'missing-state'))
 Assert ($mockHuman.Code -eq 0) 'mock stub human-readable status exits 0'
 Assert ($mockHuman.Out -match '=== Unified Status ===') 'mock stub human-readable contains header'
+Assert ($mockHuman.Out -match '\[Codex Live Skills\]') 'mock stub human-readable contains Codex Live Skills section'
 Assert ($mockHuman.Out -match 'mock-block') 'mock stub human-readable contains config detail'
 Assert ($mockHuman.Out -match 'version-upgrade') 'mock stub human-readable contains antigravity plugin reason'
 Assert ($mockHuman.Out -match 'build with the current agy before Apply.*antigravity build.*deploy -DryRun') 'status renders actionable current-agy build guidance'
@@ -504,7 +507,7 @@ Assert ($mockHuman.Out -match 'External: unity\s+action=unchanged') 'status disp
 Assert ($mockHuman.Out -match 'mock-diff') 'mock stub human-readable contains mcp projection reason'
 
 Set-TestFile -Path (Join-Path $pluginScripts 'antigravity-plugins.ps1') -Content ((Get-Content -LiteralPath (Join-Path $pluginScripts 'antigravity-plugins.ps1') -Raw) -replace 'ApplyRequirement = "build-with-current-agy-before-apply"', 'ApplyRequirement = "none"')
-$readyHuman = Invoke-TestProcess -ScriptPath $pluginEntry -Arguments @('status', '-RepoRoot', $fixtureRepo, '-HomeRoot', $fakeHome, '-StateRoot', (Join-Path $work 'missing-state'))
+$readyHuman = Invoke-ParserCase -ScriptPath $pluginEntry -Arguments @('status', '-RepoRoot', $fixtureRepo, '-HomeRoot', $fakeHome, '-StateRoot', (Join-Path $work 'missing-state'))
 Assert ($readyHuman.Code -eq 0 -and $readyHuman.Out -match 'ready for reviewed Apply; no rebuild is required') 'status renders a ready update without rebuild guidance'
 Assert ($readyHuman.Out -notmatch 'build with the current agy') 'ready update does not tell the operator to rebuild'
 
@@ -515,50 +518,50 @@ $statusStateRoot = Join-Path $work 'status-state'
 New-Item -ItemType Directory -Path $statusStateRoot -Force | Out-Null
 $statusStatePath = Join-Path $statusStateRoot 'deployed-skills.json'
 Set-Content -LiteralPath $statusStatePath -Encoding utf8 -Value '{"Environment":"work","Codex":"alpha"}'
-$scalarStatus = Invoke-TestProcess -ScriptPath $pluginEntry -Arguments @('status', '-RepoRoot', $fixtureRepo, '-HomeRoot', $fakeHome, '-StateRoot', $statusStateRoot, '-Json')
+$scalarStatus = Invoke-ParserCase -ScriptPath $pluginEntry -Arguments @('status', '-RepoRoot', $fixtureRepo, '-HomeRoot', $fakeHome, '-StateRoot', $statusStateRoot, '-Json')
 $scalarJson = $null
 try { $scalarJson = ConvertFrom-Json -InputObject $scalarStatus.Out } catch { $scalarJson = $null }
 Assert ($scalarStatus.Code -ne 0 -and $null -ne $scalarJson -and $scalarJson.Environment.Reason -eq 'invalid-state' -and $scalarJson.Environment.Failed) 'scalar Codex ownership fails the aggregate status'
 Assert ($scalarJson.Summary.Config.'in-sync' -eq 1 -and $scalarJson.Summary.Antigravity -eq $mockJson.Summary.Antigravity -and $scalarJson.Summary.Mcp.update -eq 1) 'the state failure preserves the other sections'
-$scalarHuman = Invoke-TestProcess -ScriptPath $pluginEntry -Arguments @('status', '-RepoRoot', $fixtureRepo, '-HomeRoot', $fakeHome, '-StateRoot', $statusStateRoot)
+$scalarHuman = Invoke-ParserCase -ScriptPath $pluginEntry -Arguments @('status', '-RepoRoot', $fixtureRepo, '-HomeRoot', $fakeHome, '-StateRoot', $statusStateRoot)
 Assert ($scalarHuman.Code -ne 0 -and $scalarHuman.Out -match 'Deploy state read failed: invalid-state') 'human status explains the fixed failure reason'
 Assert ($scalarHuman.Out -match 'mock-block' -and $scalarHuman.Out -match 'mock-diff') 'human status keeps the other sections visible'
 foreach ($badState in @('{invalid', '{"Environment":"work"}', '{"Environment":"work","Codex":["alpha",5]}')) {
     Set-Content -LiteralPath $statusStatePath -Encoding utf8 -Value $badState
-    $badStatus = Invoke-TestProcess -ScriptPath $pluginEntry -Arguments @('status', '-RepoRoot', $fixtureRepo, '-HomeRoot', $fakeHome, '-StateRoot', $statusStateRoot, '-Json')
+    $badStatus = Invoke-ParserCase -ScriptPath $pluginEntry -Arguments @('status', '-RepoRoot', $fixtureRepo, '-HomeRoot', $fakeHome, '-StateRoot', $statusStateRoot, '-Json')
     $badJson = $null
     try { $badJson = ConvertFrom-Json -InputObject $badStatus.Out } catch { $badJson = $null }
     $expectedReason = if ($badState -eq '{invalid') { 'invalid-json' } else { 'invalid-state' }
     Assert ($badStatus.Code -ne 0 -and $badJson.Environment.Reason -eq $expectedReason) "shape failure reports its fixed reason: $expectedReason"
 }
 Set-Content -LiteralPath $statusStatePath -Encoding utf8 -Value '{"Codex":["alpha"]}'
-$legacyStatus = Invoke-TestProcess -ScriptPath $pluginEntry -Arguments @('status', '-RepoRoot', $fixtureRepo, '-HomeRoot', $fakeHome, '-StateRoot', $statusStateRoot, '-Json')
+$legacyStatus = Invoke-ParserCase -ScriptPath $pluginEntry -Arguments @('status', '-RepoRoot', $fixtureRepo, '-HomeRoot', $fakeHome, '-StateRoot', $statusStateRoot, '-Json')
 $legacyJson = $null
 try { $legacyJson = ConvertFrom-Json -InputObject $legacyStatus.Out } catch { $legacyJson = $null }
 Assert ($legacyStatus.Code -eq 0 -and $legacyJson.Environment.Reason -eq 'missing-environment' -and -not $legacyJson.Environment.Failed) 'legacy valid Codex array without Environment remains normal'
-$fileRootStatus = Invoke-TestProcess -ScriptPath $pluginEntry -Arguments @('status', '-RepoRoot', $fixtureRepo, '-HomeRoot', $fakeHome, '-StateRoot', $fileStateRoot, '-Json')
+$fileRootStatus = Invoke-ParserCase -ScriptPath $pluginEntry -Arguments @('status', '-RepoRoot', $fixtureRepo, '-HomeRoot', $fakeHome, '-StateRoot', $fileStateRoot, '-Json')
 $fileRootJson = $null
 try { $fileRootJson = ConvertFrom-Json -InputObject $fileRootStatus.Out } catch { $fileRootJson = $null }
 Assert ($fileRootStatus.Code -ne 0 -and $fileRootJson.Environment.Reason -eq 'state-root-not-directory' -and $fileRootJson.Environment.Failed) 'file-shaped StateRoot fails status with its fixed reason'
-$dirRootStatus = Invoke-TestProcess -ScriptPath $pluginEntry -Arguments @('status', '-RepoRoot', $fixtureRepo, '-HomeRoot', $fakeHome, '-StateRoot', $dirStateRoot, '-Json')
+$dirRootStatus = Invoke-ParserCase -ScriptPath $pluginEntry -Arguments @('status', '-RepoRoot', $fixtureRepo, '-HomeRoot', $fakeHome, '-StateRoot', $dirStateRoot, '-Json')
 $dirRootJson = $null
 try { $dirRootJson = ConvertFrom-Json -InputObject $dirRootStatus.Out } catch { $dirRootJson = $null }
 Assert ($dirRootStatus.Code -ne 0 -and $dirRootJson.Environment.Reason -eq 'state-path-is-directory' -and $dirRootJson.Environment.Failed) 'directory-shaped state file fails status with its fixed reason'
 Assert ($fileRootStatus.Out -notmatch [regex]::Escape($fileStateRoot) -and $dirRootStatus.Out -notmatch [regex]::Escape($dirStateRoot)) 'status reports no private state paths'
 
 $badRootArgs = @('status', '-RepoRoot', (Join-Path $work 'missing-repo'), '-HomeRoot', $fakeHome, '-StateRoot', (Join-Path $work 'missing-state'), '-Json')
-$badRoot = Invoke-Entry -Arguments $badRootArgs
+$badRoot = Invoke-ParserCase -Arguments $badRootArgs
 $failed = $badRoot.Out | ConvertFrom-Json
 Assert ($badRoot.Code -ne 0 -and $failed.Environment.Error -and $failed.Config.Error -and $failed.Antigravity.Error -and $failed.Mcp.Error) 'bad RepoRoot returns nonzero and a parseable report of each unavailable section'
 Assert ($null -eq $failed.Summary.Config -and $null -eq $failed.Summary.Mcp) 'unavailable counts are distinct from a successful empty inventory'
 
 Set-TestFile -Path (Join-Path $pluginScripts 'config-status.ps1') -Content "Write-Output '[WARN] child warning [with brackets]'; Write-Output '[{""Platform"":""Codex"",""Item"":""AGENTS.md"",""Status"":""in-sync"",""Detail"":""warn-prefixed""}]'"
-$warnPrefixed = Invoke-TestProcess -ScriptPath $pluginEntry -Arguments @('status', '-RepoRoot', $fixtureRepo, '-HomeRoot', $fakeHome, '-StateRoot', (Join-Path $work 'missing-state'), '-Json')
+$warnPrefixed = Invoke-ParserCase -ScriptPath $pluginEntry -Arguments @('status', '-RepoRoot', $fixtureRepo, '-HomeRoot', $fakeHome, '-StateRoot', (Join-Path $work 'missing-state'), '-Json')
 $warnJson = $warnPrefixed.Out | ConvertFrom-Json
 Assert ($warnPrefixed.Code -eq 0 -and $warnJson.Config.Count -eq 1 -and $warnJson.Config[0].Detail -eq 'warn-prefixed') 'Convert-ChildJson skips bracketed [WARN] prefix lines before JSON root'
 
 Set-TestFile -Path (Join-Path $pluginScripts 'config-status.ps1') -Content "Write-Output 'invalid child JSON'"
-$partial = Invoke-TestProcess -ScriptPath $pluginEntry -Arguments @('status', '-RepoRoot', $fixtureRepo, '-HomeRoot', $fakeHome, '-StateRoot', (Join-Path $work 'missing-state'), '-Json')
+$partial = Invoke-ParserCase -ScriptPath $pluginEntry -Arguments @('status', '-RepoRoot', $fixtureRepo, '-HomeRoot', $fakeHome, '-StateRoot', (Join-Path $work 'missing-state'), '-Json')
 $damaged = $partial.Out | ConvertFrom-Json
 Assert ($partial.Code -ne 0 -and $damaged.Config.Error -and $null -eq $damaged.Summary.Config -and $damaged.Summary.Mcp.update -eq 1) 'malformed child output preserves other summaries and returns nonzero'
 
@@ -577,13 +580,90 @@ foreach ($commandArgs in @(
 $result = Invoke-ParserCase -Arguments @('sync', '-DryRun', '-Apply')
 Assert ($result.Code -eq 1 -and $result.Out -match 'only one mode') 'sync rejects both modes'
 
-$result = Invoke-Entry -Arguments @('skills', 'promote')
+$result = Invoke-ParserCase -Arguments @('skills', 'promote')
 Assert ($result.Code -eq 1 -and $result.Out -match 'explicit -DryRun or -Apply') 'rejects implicit skill promotion'
 foreach ($commandArgs in @(@('merge'), @('inventory'), @('analyze'), @('skills', 'merge'), @('skills', 'normalize'))) {
     $useNative = ($commandArgs -join ' ') -eq 'skills merge'
     $result = Invoke-ParserCase -Arguments $commandArgs -Native:$useNative
     Assert ($result.Code -eq 1 -and $result.Out -match 'Unsupported') "removed skills route is unsupported: $($commandArgs -join ' ')"
 }
+
+Write-Host 'unified CLI: status Codex Live Skills and dry-run -Json contracts'
+$skillsStatusDir = Join-Path $work 'skills-status'
+$skillsScripts = Join-Path $skillsStatusDir 'scripts'
+$skillsRepo = Join-Path $skillsStatusDir 'repo'
+$skillsHome = Join-Path $skillsStatusDir 'home'
+$skillsState = Join-Path $skillsStatusDir 'state'
+[IO.Directory]::CreateDirectory($skillsScripts) | Out-Null
+[IO.Directory]::CreateDirectory((Join-Path $skillsRepo 'harness-source/envs')) | Out-Null
+[IO.Directory]::CreateDirectory($skillsHome) | Out-Null
+[IO.Directory]::CreateDirectory($skillsState) | Out-Null
+foreach ($sFile in @('agent-dotfiles.ps1', 'repo-common.ps1', 'deploy-skills.ps1')) {
+    Copy-Item -LiteralPath (Join-Path $RepoRoot "scripts/$sFile") -Destination (Join-Path $skillsScripts $sFile) -Force
+}
+Set-TestFile -Path (Join-Path $skillsScripts 'config-status.ps1') -Content (@(
+    '[CmdletBinding()]',
+    'param([string] $RepoRoot, [string] $HomeRoot, [string[]] $Platform, [switch] $Json)',
+    '@([pscustomobject]@{ Platform="Codex"; Item="AGENTS.md"; Status="in-sync"; Detail="mock-block" }) | ConvertTo-Json -Depth 5'
+) -join "`n")
+foreach ($stubName in @('antigravity-plugins.ps1', 'mcp-sync.ps1')) {
+    Copy-Item -LiteralPath (Join-Path $pluginScripts $stubName) -Destination (Join-Path $skillsScripts $stubName) -Force
+}
+$skillsEntry = Join-Path $skillsScripts 'agent-dotfiles.ps1'
+Set-TestFile -Path (Join-Path $skillsRepo 'harness-source/envs/work.psd1') -Content "@{ SchemaVersion = 1; Name = 'work'; Description = 'fixture'; Skills = @{ Codex = @('alpha', 'beta') } }"
+Set-TestFile -Path (Join-Path $skillsState 'deployed-skills.json') -Content '{"Environment":"work","Codex":["alpha","retired-skill"]}'
+
+# 1. build-required (no codex/skills directory yet) -> must exit 0
+$buildReqRes = Invoke-ParserCase -ScriptPath $skillsEntry -Arguments @('status', '-RepoRoot', $skillsRepo, '-HomeRoot', $skillsHome, '-StateRoot', $skillsState, '-Json')
+$buildReqJson = $buildReqRes.Out | ConvertFrom-Json
+Assert ($buildReqRes.Code -eq 0 -and $buildReqJson.Skills.State -eq 'build-required' -and $buildReqJson.Summary.Skills -eq 'build-required' -and $null -eq $buildReqJson.Skills.Summary -and $null -eq $buildReqJson.Skills.Error) 'status reports build-required for Skills without failing aggregate exit code'
+
+$buildReqHuman = Invoke-ParserCase -ScriptPath $skillsEntry -Arguments @('status', '-RepoRoot', $skillsRepo, '-HomeRoot', $skillsHome, '-StateRoot', $skillsState)
+Assert ($buildReqHuman.Code -eq 0 -and $buildReqHuman.Out -match '\[Codex Live Skills\]' -and $buildReqHuman.Out -match 'build-required') 'human status renders [Codex Live Skills] build-required state'
+
+# 2. checked with install, update (unrecorded), unchanged, prune, unknown + remnant
+Set-TestFile -Path (Join-Path $skillsRepo 'codex/skills/alpha/SKILL.md') -Content "# alpha v2`n"
+Set-TestFile -Path (Join-Path $skillsRepo 'codex/skills/beta/SKILL.md') -Content "# beta v1`n"
+Set-TestFile -Path (Join-Path $skillsHome '.codex/skills/alpha/SKILL.md') -Content "# alpha v1`n"
+Set-TestFile -Path (Join-Path $skillsHome '.codex/skills/retired-skill/SKILL.md') -Content "# retired`n"
+Set-TestFile -Path (Join-Path $skillsHome '.codex/skills/local-only/SKILL.md') -Content "# local`n"
+New-Item -ItemType Directory -Path (Join-Path $skillsHome '.codex/skills/.deploying-leftover') -Force | Out-Null
+
+$checkedRes = Invoke-TestProcess -ScriptPath $skillsEntry -Arguments @('status', '-RepoRoot', $skillsRepo, '-HomeRoot', $skillsHome, '-StateRoot', $skillsState, '-Json')
+$checkedJson = $checkedRes.Out | ConvertFrom-Json
+Assert ($checkedRes.Code -eq 0 -and $checkedJson.Skills.State -eq 'checked' -and $checkedJson.Skills.LiveRoot -eq '~/.codex/skills' -and $null -eq $checkedJson.Skills.Error) 'status checks live Codex skills when built and exits 0'
+Assert ($checkedJson.Skills.Summary.install -eq 1 -and $checkedJson.Skills.Summary.update -eq 1 -and $checkedJson.Skills.Summary.prune -eq 1 -and $checkedJson.Skills.Summary.unknown -eq 1 -and $checkedJson.Summary.Skills.update -eq 1) 'status Skills summary reports install/update/prune/unknown counts accurately'
+
+# Direct deploy-skills.ps1 -Json contract (Contract 1)
+Set-TestFile -Path (Join-Path $skillsRepo 'harness-source/envs/work.psd1') -Content "@{ SchemaVersion = 1; Name = 'work'; Description = 'fixture'; Skills = @{ Codex = @('alpha', 'beta', 'gamma') } }"
+Set-TestFile -Path (Join-Path $skillsRepo 'codex/skills/gamma/SKILL.md') -Content "# gamma v1`n"
+Set-TestFile -Path (Join-Path $skillsHome '.codex/skills/gamma/SKILL.md') -Content "# gamma old`n"
+$dsJsonRes = Invoke-TestProcess -ScriptPath (Join-Path $RepoRoot 'scripts/deploy-skills.ps1') -Arguments @('-Environment', 'work', '-RepoRoot', $skillsRepo, '-HomeRoot', $skillsHome, '-StateRoot', $skillsState, '-SkipBuild', '-Json')
+$dsJson = $dsJsonRes.Out | ConvertFrom-Json
+Assert ($dsJsonRes.Code -eq 0 -and $dsJson.SchemaVersion -eq 1 -and $dsJson.Mode -eq 'dry-run' -and $dsJson.Environment -eq 'work' -and $dsJson.PreviousEnvironment -eq 'work' -and $dsJson.LiveRoot -eq '~/.codex/skills') 'deploy-skills.ps1 -Json emits valid Contract 1 header fields'
+Assert ($dsJson.Summary.install -eq 1 -and $dsJson.Summary.update -eq 2 -and $dsJson.Summary.prune -eq 1 -and $dsJson.Summary.unknown -eq 1) 'deploy-skills.ps1 -Json Summary counts match plan'
+Assert (@($dsJson.UnrecordedUpdates) -contains 'Codex/gamma' -and $dsJson.InterruptedRemnants.Count -eq 1 -and $dsJson.InterruptedRemnants[0].Name -eq '.deploying-leftover') 'deploy-skills.ps1 -Json captures UnrecordedUpdates and leaf-only InterruptedRemnants'
+Assert ($dsJsonRes.Out -notmatch [regex]::Escape($skillsHome) -and $dsJsonRes.Out -notmatch [regex]::Escape($skillsState)) 'deploy-skills.ps1 -Json never prints private HomeRoot or StateRoot paths'
+$dsApplyJsonErr = ''
+try { & (Join-Path $RepoRoot 'scripts/deploy-skills.ps1') -Environment work -RepoRoot $skillsRepo -HomeRoot $skillsHome -StateRoot $skillsState -SkipBuild -Apply -Json *>&1 | Out-Null } catch { $dsApplyJsonErr = $_.Exception.Message }
+Assert ($dsApplyJsonErr -match 'cannot be combined') 'deploy-skills.ps1 rejects -Json with -Apply'
+
+# 3. error state on ambiguous live root -> non-zero exit
+New-Item -ItemType Directory -Path (Join-Path $skillsHome '.agents/skills') -Force | Out-Null
+$ambigRes = Invoke-ParserCase -ScriptPath $skillsEntry -Arguments @('status', '-RepoRoot', $skillsRepo, '-HomeRoot', $skillsHome, '-StateRoot', $skillsState, '-Json')
+$ambigJson = $ambigRes.Out | ConvertFrom-Json
+Assert ($ambigRes.Code -ne 0 -and $ambigJson.Skills.State -eq 'error' -and $ambigJson.Summary.Skills -eq 'error' -and $ambigJson.Skills.Error -match 'codex-live-root-ambiguous') 'status reports Skills error and exits non-zero on ambiguous live root'
+
+# Direct config-pull.ps1 -Json contract (Contract 2)
+$cpJsonRes = Invoke-TestProcess -ScriptPath (Join-Path $RepoRoot 'scripts/config-pull.ps1') -Arguments @('-RepoRoot', $RepoRoot, '-HomeRoot', $fakeHome, '-Platform', 'Antigravity', '-Json')
+$cpJson = $cpJsonRes.Out | ConvertFrom-Json
+Assert ($cpJsonRes.Code -eq 0 -and $cpJson.SchemaVersion -eq 1 -and $cpJson.Mode -eq 'dry-run' -and ($cpJson.Platforms -contains 'Antigravity') -and $cpJson.Summary.add -ge 1) 'config-pull.ps1 -Json emits valid Contract 2 summary'
+$agAgentsItem = @($cpJson.Items | Where-Object { $_.Rel -eq 'Antigravity/AGENTS.md' })[0]
+Assert ($null -ne $agAgentsItem -and $agAgentsItem.Action -eq 'add' -and $agAgentsItem.Mode -eq 'content' -and $agAgentsItem.ManagedBlockOnly) 'config-pull.ps1 -Json reports Antigravity/AGENTS.md with ManagedBlockOnly = true'
+Assert ($cpJsonRes.Out -notmatch [regex]::Escape($fakeHome) -and $cpJsonRes.Out -notmatch 'BEGIN AI-AGENT-DOTFILES') 'config-pull.ps1 -Json omits HomeRoot and file contents'
+$cpApplyJsonErr = ''
+try { & (Join-Path $RepoRoot 'scripts/config-pull.ps1') -RepoRoot $RepoRoot -HomeRoot $fakeHome -Platform Antigravity -Apply -Json *>&1 | Out-Null } catch { $cpApplyJsonErr = $_.Exception.Message }
+Assert ($cpApplyJsonErr -match 'cannot be combined') 'config-pull.ps1 rejects -Json with -Apply'
 
 Write-Host ''
 Write-Host ("agent-dotfiles CLI tests: {0} passed, {1} failed" -f $pass, $fail)

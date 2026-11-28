@@ -16,6 +16,30 @@ function Set-TestEnvironment([string] $Repo, [string[]] $Skills) {
 function Invoke-Deploy([string] $Repo, [string] $HomeDir, [string[]] $Extra = @()) {
     Invoke-TestProcess -ScriptPath $deploy -Arguments (@('-Environment', 'test', '-RepoRoot', $Repo, '-HomeRoot', $HomeDir, '-StateRoot', (Join-Path $HomeDir 'state'), '-SkipBuild') + $Extra)
 }
+function Invoke-DeployInProcess([string] $Repo, [string] $HomeDir, [string[]] $Extra = @(), [string] $Environment = 'test') {
+    $invArgs = @{
+        Environment = $Environment
+        RepoRoot    = $Repo
+        HomeRoot    = $HomeDir
+        StateRoot   = (Join-Path $HomeDir 'state')
+        SkipBuild   = $true
+    }
+    $retire = @()
+    for ($i = 0; $i -lt $Extra.Count; $i++) {
+        if ($Extra[$i] -eq '-Apply') { $invArgs['Apply'] = $true }
+        elseif ($Extra[$i] -eq '-Retire' -and ($i + 1) -lt $Extra.Count) { $retire += $Extra[++$i] }
+        elseif ($Extra[$i] -eq '-Environment' -and ($i + 1) -lt $Extra.Count) { $invArgs['Environment'] = $Extra[++$i] }
+        else { throw "Unsupported Invoke-DeployInProcess argument: $($Extra[$i])" }
+    }
+    if ($retire.Count -gt 0) { $invArgs['Retire'] = $retire }
+    try {
+        $out = @(& $deploy @invArgs *>&1 | ForEach-Object { [string] $_ })
+        return [pscustomobject]@{ Code = 0; Out = ($out -join "`n") }
+    }
+    catch {
+        return [pscustomobject]@{ Code = 1; Out = $_.Exception.Message }
+    }
+}
 function Get-LiveRoots([string] $HomeDir) {
     @((Join-Path $HomeDir '.codex/skills'))
 }
@@ -65,12 +89,12 @@ try {
     Set-TestFile (Join-Path $summaryHome '.codex/skills/manual/SKILL.md') 'manual'
     Set-TestFile (Join-Path $summaryHome 'state/deployed-skills.json') '{"Codex":["obsolete"]}'
     $summaryStateHash = (Get-FileHash (Join-Path $summaryHome 'state/deployed-skills.json')).Hash
-    $r = Invoke-Deploy $repo $summaryHome
+    $r = Invoke-DeployInProcess $repo $summaryHome
     Assert-TestCondition ($r.Code -eq 0 -and $r.Out -match 'Plan summary: install=1\s+update=1\s+unchanged=1\s+prune=1\s+unknown=1') 'mixed plan reports each action count'
     Assert-TestCondition ((Get-Content -Raw (Join-Path $summaryHome '.codex/skills/beta/SKILL.md')) -eq 'older beta' -and (Test-Path (Join-Path $summaryHome '.codex/skills/obsolete/SKILL.md')) -and -not (Test-Path (Join-Path $summaryHome '.codex/skills/summary-extra')) -and (Get-FileHash (Join-Path $summaryHome 'state/deployed-skills.json')).Hash -eq $summaryStateHash) 'mixed dry run preserves live content and state'
     Set-TestEnvironment $repo @()
     $emptyHome = Join-Path $work 'empty-home'
-    $r = Invoke-Deploy $repo $emptyHome
+    $r = Invoke-DeployInProcess $repo $emptyHome
     Assert-TestCondition ($r.Code -eq 0 -and $r.Out -match 'Plan summary: install=0\s+update=0\s+unchanged=0\s+prune=0\s+unknown=0' -and -not (Test-Path $emptyHome)) 'empty plan reports zero counts without writing home or state'
     Assert-TestCondition ($r.Out -cmatch 'Codex live root: ~/\.codex/skills' -and $r.Out -notmatch [regex]::Escape($emptyHome)) 'a no-action preview still shows the chosen live root home-relative'
     Set-TestEnvironment $repo @('alpha', 'beta')
@@ -78,13 +102,13 @@ try {
     Write-Host '[review updates absent from deploy state]'
     $reviewHome = Join-Path $work 'review-home'
     Set-TestFile (Join-Path $reviewHome '.codex/skills/alpha/SKILL.md') 'existing content'
-    $r = Invoke-Deploy $repo $reviewHome
+    $r = Invoke-DeployInProcess $repo $reviewHome
     Assert-TestCondition ($r.Code -eq 0 -and $r.Out -match 'Update not recorded in deploy state: Codex/alpha' -and $r.Out -match 'ownership is unknown') 'missing state warns of an update without claiming ownership'
     Set-TestFile (Join-Path $reviewHome 'state/deployed-skills.json') '{"Codex":[]}'
-    $r = Invoke-Deploy $repo $reviewHome
+    $r = Invoke-DeployInProcess $repo $reviewHome
     Assert-TestCondition ($r.Code -eq 0 -and $r.Out -match 'Update not recorded in deploy state: Codex/alpha') 'existing state without the name warns'
     Set-TestFile (Join-Path $reviewHome 'state/deployed-skills.json') '{"Codex":["alpha"]}'
-    $r = Invoke-Deploy $repo $reviewHome
+    $r = Invoke-DeployInProcess $repo $reviewHome
     Assert-TestCondition ($r.Code -eq 0 -and $r.Out -notmatch 'Update not recorded in deploy state: Codex/alpha') 'state-recorded updates do not produce the warning'
     Assert-TestCondition ((Get-Content -Raw (Join-Path $reviewHome '.codex/skills/alpha/SKILL.md')) -eq 'existing content') 'review does not change the existing directory'
 
@@ -176,7 +200,7 @@ catch { Write-Error $_ -ErrorAction Continue; exit 1 }
     Set-TestFile (Join-Path $invalidStateHome '.codex/skills/alpha/SKILL.md') 'live alpha'
     Set-TestFile (Join-Path $invalidStateHome '.codex/skills/stray/SKILL.md') 'live stray'
     $invalidStatePath = Join-Path $invalidStateHome 'state/deployed-skills.json'
-    foreach ($invalidState in @(
+    $invalidStates = @(
         '{"Environment":"test","Codex":"stray"}',
         '{"Environment":"test"}',
         '{"Environment":"test","Codex":["stray",5]}',
@@ -184,15 +208,19 @@ catch { Write-Error $_ -ErrorAction Continue; exit 1 }
         '[{"Environment":"test","Codex":["stray"]}]',
         '{"Environment":"test","Codex":["stray","bad/name"]}',
         '[]'
-    )) {
+    )
+    for ($i = 0; $i -lt $invalidStates.Count; $i++) {
+        $invalidState = $invalidStates[$i]
+        # Keep the first invalid-state case as a full child-pwsh subprocess run; run the rest in-process.
+        $invoke = if ($i -eq 0) { ${function:Invoke-Deploy} } else { ${function:Invoke-DeployInProcess} }
         Set-TestFile $invalidStatePath $invalidState
         $invalidStateHash = (Get-FileHash -LiteralPath $invalidStatePath).Hash
-        $r = Invoke-Deploy $repo $invalidStateHome
+        $r = & $invoke $repo $invalidStateHome
         Assert-TestCondition ($r.Code -ne 0 -and $r.Out -match 'deploy-state-invalid-state' -and $r.Out -notmatch '(?m)^\s*Codex\s+prune\s+') "a present invalid state plans no prune: $invalidState"
-        $r = Invoke-Deploy $repo $invalidStateHome @('-Apply')
+        $r = & $invoke $repo $invalidStateHome @('-Apply')
         Assert-TestCondition ($r.Code -ne 0 -and $r.Out -match 'deploy-state-invalid-state' -and (Get-FileHash -LiteralPath $invalidStatePath).Hash -eq $invalidStateHash) "a present invalid state blocks Apply without rewriting state: $invalidState"
         Assert-TestCondition ((Get-Content -Raw (Join-Path $invalidStateHome '.codex/skills/stray/SKILL.md')) -eq 'live stray' -and -not (Test-Path (Join-Path $invalidStateHome 'state/skill-backups')) -and -not (Test-Path (Join-Path $invalidStateHome '.codex/skills/beta'))) "a present invalid state authorizes no live write: $invalidState"
-        $r = Invoke-Deploy $repo $invalidStateHome @('-Retire', 'stray')
+        $r = & $invoke $repo $invalidStateHome @('-Retire', 'stray')
         Assert-TestCondition ($r.Code -ne 0 -and $r.Out -match 'deploy-state-invalid-state' -and (Test-Path (Join-Path $invalidStateHome '.codex/skills/stray/SKILL.md'))) "an invalid state cannot authorize even an explicit retire: $invalidState"
     }
     $unreadableStateHome = Join-Path $work 'unreadable-state-home'
@@ -211,7 +239,7 @@ catch { Write-Error $_ -ErrorAction Continue; exit 1 }
     $retireHome = Join-Path $work 'retire-selected-home'
     Set-TestFile (Join-Path $retireHome '.codex/skills/alpha/SKILL.md') 'live alpha'
     foreach ($mode in @(@(), @('-Apply'))) {
-        $r = Invoke-Deploy $repo $retireHome (@('-Retire', 'alpha') + $mode)
+        $r = Invoke-DeployInProcess $repo $retireHome (@('-Retire', 'alpha') + $mode)
         Assert-TestCondition ($r.Code -ne 0 -and $r.Out -match 'retire-selected-skill: -Retire names .alpha., which the environment .test. still selects') "retiring selected alpha is refused ($($mode -join ' '))"
         Assert-TestCondition ((Get-Content -Raw (Join-Path $retireHome '.codex/skills/alpha/SKILL.md')) -eq 'live alpha' -and -not (Test-Path (Join-Path $retireHome 'state'))) "the refusal writes nothing ($($mode -join ' '))"
     }
@@ -308,12 +336,12 @@ catch { Write-Error $_ -ErrorAction Continue; exit 1 }
     $preferredPreviewHome = Join-Path $work 'root-preview-home'
     New-Item -ItemType Directory -Path (Join-Path $preferredPreviewHome '.codex/skills') -Force | Out-Null
     Set-TestFile (Join-Path $preferredPreviewHome '.codex/skills/stray/SKILL.md') 'stray'
-    $r = Invoke-Deploy $repo $preferredPreviewHome
+    $r = Invoke-DeployInProcess $repo $preferredPreviewHome
     Assert-TestCondition ($r.Code -eq 0 -and $r.Out -cmatch 'Codex live root: ~/\.codex/skills' -and $r.Out -notmatch 'fallback') 'the preferred root is chosen and shown home-relative'
     Assert-TestCondition ($r.Out -notmatch [regex]::Escape($preferredPreviewHome)) 'the live-root preview omits the machine-private home path'
     $fallbackPreviewHome = Join-Path $work 'root-preview-fallback-home'
     New-Item -ItemType Directory -Path (Join-Path $fallbackPreviewHome '.agents/skills') -Force | Out-Null
-    $r = Invoke-Deploy $repo $fallbackPreviewHome
+    $r = Invoke-DeployInProcess $repo $fallbackPreviewHome
     Assert-TestCondition ($r.Code -eq 0 -and $r.Out -cmatch 'Codex live root: ~/\.agents/skills \(fallback; ~/\.codex/skills is absent\)' -and $r.Out -notmatch [regex]::Escape($fallbackPreviewHome)) 'the fallback root is identified home-relative'
 
     Write-Host '[Codex fallback root]'
@@ -392,7 +420,7 @@ catch { Write-Error $_ -ErrorAction Continue; exit 1 }
 
     Write-Host '[selection without generated output is refused]'
     Set-TestEnvironment $repo @('alpha', 'missing-skill')
-    $r = Invoke-Deploy $repo $homeDir
+    $r = Invoke-DeployInProcess $repo $homeDir
     Assert-TestCondition ($r.Code -ne 0 -and $r.Out -match 'no generated output for Codex') 'a Codex selection without its generated output is refused'
     Set-TestEnvironment $repo @('alpha')
 
@@ -400,21 +428,21 @@ catch { Write-Error $_ -ErrorAction Continue; exit 1 }
     $envFile = Join-Path $repo 'harness-source/envs/test.psd1'
     $good = [IO.File]::ReadAllText($envFile)
     [IO.File]::WriteAllText($envFile, "@{ Skills = @{ Codx = @('alpha') } }")
-    $r = Invoke-Deploy $repo $homeDir
+    $r = Invoke-DeployInProcess $repo $homeDir
     Assert-TestCondition ($r.Code -ne 0 -and $r.Out -match 'exactly the key Codex') 'a misspelled platform key is refused instead of pruning everything'
     [IO.File]::WriteAllText($envFile, "@{ Skills = @{ Codex = @('alpha.') } }")
-    $r = Invoke-Deploy $repo $homeDir
+    $r = Invoke-DeployInProcess $repo $homeDir
     Assert-TestCondition ($r.Code -ne 0 -and $r.Out -match 'invalid skill name') 'a trailing-dot name is refused'
     [IO.File]::WriteAllText($envFile, "@{ Skills = @{ Codex = @('') } }")
     $stateFile = Join-Path $homeDir 'state/deployed-skills.json'
     $stateHash = (Get-FileHash -LiteralPath $stateFile).Hash
-    $r = Invoke-Deploy $repo $homeDir @('-Apply')
+    $r = Invoke-DeployInProcess $repo $homeDir @('-Apply')
     Assert-TestCondition ($r.Code -ne 0 -and $r.Out -match 'invalid skill name' -and (Test-Path -LiteralPath (Join-Path $homeDir '.codex/skills/alpha/SKILL.md')) -and (Get-FileHash -LiteralPath $stateFile).Hash -eq $stateHash) 'a blank skill name cannot prune a managed skill or publish empty state'
     [IO.File]::WriteAllText($envFile, "@{ Skills = @{ Codex = @('alpha'); Zcode = @() } }")
-    $r = Invoke-Deploy $repo $homeDir
+    $r = Invoke-DeployInProcess $repo $homeDir
     Assert-TestCondition ($r.Code -ne 0 -and $r.Out -match 'exactly the key Codex') 'an env with retired Zcode key is refused'
     [IO.File]::WriteAllText($envFile, "@{ Skills = @{ Codex = @('alpha'); Claude = @() } }")
-    $r = Invoke-Deploy $repo $homeDir
+    $r = Invoke-DeployInProcess $repo $homeDir
     Assert-TestCondition ($r.Code -ne 0 -and $r.Out -match 'exactly the key Codex') 'an env with a retired platform key is refused'
     [IO.File]::WriteAllText($envFile, $good)
 
@@ -432,26 +460,26 @@ catch { Write-Error $_ -ErrorAction Continue; exit 1 }
     $ancestorJuncHome = Join-Path $work 'ancestor-junc-home'
     New-Item -ItemType Directory -Path $ancestorJuncHome -Force | Out-Null
     New-Item -ItemType Junction -Path (Join-Path $ancestorJuncHome '.codex') -Target $outside | Out-Null
-    $r = Invoke-Deploy $repo $ancestorJuncHome
+    $r = Invoke-DeployInProcess $repo $ancestorJuncHome
     Assert-TestCondition ($r.Code -ne 0 -and $r.Out -match 'reparse-point-refused') 'a junction on ~/.codex ancestor is refused even when skills subdir is missing'
 
     $stateJuncHome = Join-Path $work 'state-junc-home'
     New-Item -ItemType Directory -Path $stateJuncHome -Force | Out-Null
     New-Item -ItemType Junction -Path (Join-Path $stateJuncHome 'state') -Target $outside | Out-Null
-    $r = Invoke-Deploy $repo $stateJuncHome
+    $r = Invoke-DeployInProcess $repo $stateJuncHome
     Assert-TestCondition ($r.Code -ne 0 -and $r.Out -match 'reparse-point-refused') 'a junction StateRoot is refused'
 
     foreach ($badEnv in @('../test', 'bad env')) {
-        $r = Invoke-TestProcess -ScriptPath $deploy -Arguments @('-Environment', $badEnv, '-RepoRoot', $repo, '-HomeRoot', $homeDir, '-StateRoot', (Join-Path $homeDir 'state'), '-SkipBuild')
+        $r = Invoke-DeployInProcess $repo $homeDir -Environment $badEnv
         Assert-TestCondition ($r.Code -ne 0 -and $r.Out -match 'invalid environment name') "invalid environment name '$badEnv' is refused"
     }
 
     Set-TestFile (Join-Path $repo 'harness-source/envs/noskills.psd1') '@{ Description = "missing skills" }'
-    $r = Invoke-TestProcess -ScriptPath $deploy -Arguments @('-Environment', 'noskills', '-RepoRoot', $repo, '-HomeRoot', $homeDir, '-StateRoot', (Join-Path $homeDir 'state'), '-SkipBuild')
+    $r = Invoke-DeployInProcess $repo $homeDir -Environment 'noskills'
     Assert-TestCondition ($r.Code -ne 0 -and $r.Out -match 'exactly the key Codex') 'env without Skills key fails cleanly'
 
     Set-TestFile (Join-Path $repo 'harness-source/envs/dups.psd1') "@{ Skills = @{ Codex = @('alpha', 'alpha') } }"
-    $r = Invoke-TestProcess -ScriptPath $deploy -Arguments @('-Environment', 'dups', '-RepoRoot', $repo, '-HomeRoot', $homeDir, '-StateRoot', (Join-Path $homeDir 'state'), '-SkipBuild')
+    $r = Invoke-DeployInProcess $repo $homeDir -Environment 'dups'
     Assert-TestCondition ($r.Code -ne 0 -and $r.Out -match 'duplicate skill name') 'duplicate skill names in Skills.Codex are refused'
 
     $commaRetireHome = Join-Path $work 'comma-retire-home'
