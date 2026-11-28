@@ -1,6 +1,6 @@
 # AI Agent Dotfiles
 
-在 Windows 上维护 Codex 的日常 skills 与受管配置，以及 Antigravity 的全局规则、插件和受管 MCP 服务。
+在 Windows 上维护 Codex 的日常 skills 与受管配置，Antigravity 的全局规则、插件和受管 MCP 服务，以及 Hermes 的 `SOUL.md`、共享技能与受管 MCP 服务。
 使用 PowerShell 7+；先预览，再按已授权范围执行 Apply。个人配置、凭据、会话和缓存不入库。
 
 ## 先选你的操作
@@ -13,6 +13,7 @@
 | 打开本地可视化监控台 | 下方“[可视化监控台](#可视化监控台)”及[手册 §17](docs/README.md#17-本地可视化监控台dashboard) |
 | 部署失败或想恢复旧内容 | 下方“失败与恢复”及[手册 §8](docs/README.md#8-备份与恢复) |
 | 使用 Antigravity 插件 | [手册 §15](docs/README.md#15-antigravity-插件) |
+| 同步 Hermes 规则与共享技能 | 下方“[Hermes 同步](#hermes-同步)”及[手册 §18](docs/README.md#18-hermes-共享技能hermes-skills) |
 | 同步受管 MCP servers | 下方“受管 MCP 分发”及[手册 §16](docs/README.md#16-受管-mcp-分发mcp-sync) |
 | 修改或新增 skill | [手册 §5–6](docs/README.md#5-修改已有-skill-的流程) |
 
@@ -78,14 +79,16 @@ pwsh -NoProfile -File scripts/agent-dotfiles.ps1 doctor
 pwsh -NoProfile -File scripts/agent-dotfiles.ps1 env list
 pwsh -NoProfile -File scripts/agent-dotfiles.ps1 config status
 pwsh -NoProfile -File scripts/agent-dotfiles.ps1 config status -Platform Antigravity
+pwsh -NoProfile -File scripts/agent-dotfiles.ps1 config status -Platform Hermes
 pwsh -NoProfile -File scripts/agent-dotfiles.ps1 antigravity status
+pwsh -NoProfile -File scripts/agent-dotfiles.ps1 hermes status
 pwsh -NoProfile -File scripts/agent-dotfiles.ps1 mcp status
 pwsh -NoProfile -File scripts/agent-dotfiles.ps1 help config
 ```
 
-`agent-dotfiles.ps1 status` 一站式只读汇总上次 Apply 环境、双端配置漂移（Codex、Antigravity）、Antigravity 插件状态与受管 MCP 状态；支持 `-Json` 输出纯净结构化对象。
-查询成功时退出码为 `0`，包括发现配置差异或插件动作受阻的情况。子查询失败时仍输出可用分项，退出码为非零；自动化读取摘要前应检查退出码。
-`config help` 与 `help config` 等价；`status`、`env`、`profile`、`skills`、`antigravity`、`mcp` 也支持分组帮助。
+`agent-dotfiles.ps1 status` 一站式只读汇总上次 Apply 环境、三端配置漂移（Codex、Antigravity、Hermes）、Antigravity 插件状态、Hermes 共享技能状态与受管 MCP 状态；支持 `-Json` 输出纯净结构化对象。
+查询成功时退出码为 `0`，包括发现配置差异、插件动作受阻，或 Hermes 尚未安装/处于受阻保护状态的情况。子查询失败时仍输出可用分项，退出码为非零；自动化读取摘要前应检查退出码。
+`config help` 与 `help config` 等价；`status`、`env`、`profile`、`skills`、`antigravity`、`hermes`、`mcp` 也支持分组帮助。
 `config pull` 是仓库 → 本机，`config push` 是本机 → 仓库的配置捕获，和 Git push 无关。
 捕获的 diff 必须由人审查后才能提交。`env list -JsonPath <file>` 会写报告文件，属于只读列表的显式写出例外。
 
@@ -125,25 +128,40 @@ pwsh -NoProfile -File scripts/agent-dotfiles.ps1 antigravity deploy -DryRun
 须先审阅预览并取得覆盖具体身份、版本和启用影响的许可；原生模型验收另须覆盖实际调用范围。
 未证明的更新与回滚保持 blocked。安装、启用、加载和实际使用分别验收，详见[手册 §15](docs/README.md#15-antigravity-插件)。
 
+## Hermes 同步
+
+Hermes 使用独立入口与显式 `-Platform Hermes`，默认仅针对 `%LOCALAPPDATA%\hermes` 默认安装根与 `default` profile 运行（若检测到非默认 `HERMES_HOME`、`HERMES_DATA_DIR_SUFFIX`、非 `default` 的 `active_profile`、reparse point 或同级本地技能冲突，预览与写入都会 fail closed 阻塞；未安装时只读报告 `not-installed`，Apply 拒绝创建假根目录）：
+
+```powershell
+pwsh -NoProfile -File scripts/agent-dotfiles.ps1 config status -Platform Hermes
+pwsh -NoProfile -File scripts/agent-dotfiles.ps1 config pull -Platform Hermes -DryRun
+pwsh -NoProfile -File scripts/agent-dotfiles.ps1 hermes status
+pwsh -NoProfile -File scripts/agent-dotfiles.ps1 hermes deploy -DryRun
+```
+
+- **全局规则**：`hermes/SOUL.md` 通过 `config-sync -Platform Hermes` 的受管块同步到 `%LOCALAPPDATA%\hermes\SOUL.md`，块外个人内容保留。
+- **共享技能**：`harness-source/hermes/skills.psd1` 选择 8 个共享技能（`brainstorming`、`git-review`、`meng-cmame-writing`、`multimodal-generation`、`paper-polish`、`session-learnings`、`verification-before-completion`、`writing-plans`，排除 `systematic-debugging` 与 `tool-scope`），通过 `hermes deploy` 部署到 `%LOCALAPPDATA%\hermes\skills\ai-agent-dotfiles\`。
+- **边界**：`sync` / `deploy.ps1` 与 `AGENTS.md` Skill rules 10 保持 Codex-only，不自动部署 Hermes；Hermes `config.yaml`、凭据、记忆与会话不纳入 `config-sync`，详见[手册 §18](docs/README.md#18-hermes-共享技能hermes-skills)。
+
 ## 受管 MCP 分发
 
-`harness-source/mcp/servers.psd1` 集中声明需要跨 Antigravity 和 Codex 同步的受管 MCP servers（当前声明 `blender`），零明文凭据与私有路径：
+`harness-source/mcp/servers.psd1` 集中声明需要跨 Antigravity、Codex 和 Hermes 同步的受管 MCP servers（当前声明 `blender`），零明文凭据与私有路径：
 
 ```powershell
 pwsh -NoProfile -File scripts/agent-dotfiles.ps1 mcp status
 pwsh -NoProfile -File scripts/agent-dotfiles.ps1 mcp deploy -DryRun
 ```
 
-`mcp deploy` 独立于 `sync` 与 `env deploy`，按条目投影到 Antigravity（`~/.gemini/config/mcp_config.json`）和 Codex（官方 `codex mcp` CLI），保留各端非托管条目与个人设置。授权前仅运行只读 `status` 或 `-DryRun`，`-Apply` 须获得明确授权（不继承 Codex `work` 持续技能授权），详见[手册 §16](docs/README.md#16-受管-mcp-分发mcp-sync)。
+`mcp deploy` 独立于 `sync` 与 `env deploy`，按条目投影到 Antigravity（`~/.gemini/config/mcp_config.json`）、Codex（官方 `codex mcp` CLI）和 Hermes（`%LOCALAPPDATA%\hermes\config.yaml` 的 `mcp_servers` 块），保留各端非托管条目与个人设置。授权前仅运行只读 `status` 或 `-DryRun`，`-Apply` 须获得明确授权（不继承 Codex `work` 持续技能授权），详见[手册 §16](docs/README.md#16-受管-mcp-分发mcp-sync)。
 
 ## 管理范围
 
 - `skills-source/` 是 skills 唯一源。构建生成 `codex/skills/` 和 `manifests/managed-skills.codex.txt`。生成目录由 Git 忽略。
-- 在 `harness-source/envs/` 中，`work` 为 Codex 选择 10 个技能，`full` 选择 20 个，`minimal` 选择 1 个。
+- 在 `harness-source/envs/` 中，`work` 为 Codex 选择 10 个技能，`full` 选择 20 个，`minimal` 选择 1 个；`harness-source/hermes/skills.psd1` 为 Hermes 选择 8 个共享技能。
 - 部署逐个 skill 目录进行，只 prune 本工具记录过或显式 `-Retire` 点名的目录；未知目录保留，Codex `.system` 不受管。
-- 配置 status/pull/push 及组合部署的配置阶段默认只处理 Codex。同步 Antigravity 全局协议时显式传入 `-Platform Antigravity`。各端的 `AGENTS.md` 只同步受管块。
+- 配置 status/pull/push 及组合部署的配置阶段默认只处理 Codex。同步 Antigravity 全局协议时显式传入 `-Platform Antigravity`，同步 Hermes `SOUL.md` 时显式传入 `-Platform Hermes`。各端的 `AGENTS.md` / `SOUL.md` 只同步受管块。
 - 项目 profile 仅生成 Codex 目标。Codex 同时存在 `~/.codex/skills` 与 `~/.agents/skills` 时拒绝部署，需先人工判断。
-- 整份 Codex `config.toml`、私有 `.env`、凭据、会话或缓存永不同步；`harness-source/mcp/servers.psd1` 声明的受管 MCP 条目仅通过显式 `mcp deploy` 按条目投影，不并入默认 `sync`。
+- 整份 Codex `config.toml`、Hermes `config.yaml`、私有 `.env`、凭据、会话或缓存永不同步；`harness-source/mcp/servers.psd1` 声明的受管 MCP 条目仅通过显式 `mcp deploy` 按条目投影，不并入默认 `sync`。
 
 ## 进一步阅读
 

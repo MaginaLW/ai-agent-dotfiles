@@ -7,7 +7,7 @@
 - **基础与日常同步：** [1. 项目目的](#1-项目目的) · [2. 当前管理范围](#2-当前管理范围) · [3. 目录说明](#3-目录说明) · [4. 日常同步流程](#4-日常同步流程)（[部署后复核](#部署后的只读复核)）
 - **Skills 与维护：** [5. 修改已有 skill](#5-修改已有-skill-的流程) · [6. 新增 skill](#6-新增-skill-的流程) · [7. Codex `.system`](#7-codex-system-规则) · [8. 备份与恢复](#8-备份与恢复) · [9. 常见问题](#9-常见问题) · [10. 检查与 CI](#10-检查与-ci)
 - **配置、环境与工具：** [11. Harness 配置同步](#11-harness-配置同步config-sync) · [12. Project Harness Profiles](#12-project-harness-profiles) · [13. Harness Environments](#13-harness-environments) · [14. 统一 CLI](#14-统一-cli)
-- **Antigravity、MCP 与监控台：** [15. Antigravity 插件](#15-antigravity-插件) · [16. 受管 MCP 分发](#16-受管-mcp-分发mcp-sync) · [17. 本地可视化监控台](#17-本地可视化监控台dashboard)
+- **Antigravity、Hermes、MCP 与监控台：** [15. Antigravity 插件](#15-antigravity-插件) · [16. 受管 MCP 分发](#16-受管-mcp-分发mcp-sync) · [17. 本地可视化监控台](#17-本地可视化监控台dashboard) · [18. Hermes 共享技能](#18-hermes-共享技能hermes-skills)
 
 ## 1. 项目目的
 
@@ -36,12 +36,12 @@
 |---|---|
 | `bootstrap.ps1` | 新 clone 一次性入口：安装并校验 pinned gitleaks、build、打印联合 deploy dry-run 命令；不写 live |
 | `STATUS.md`、`status/active/` | 全局状态（原地更新）与进行中任务记录（完成后结论并入 `STATUS.md` 并删除） |
-| `codex/AGENTS.md`、`antigravity/AGENTS.md` | Codex / Antigravity 全局工作协议源（受管 block 分别同步至 `~/.codex/AGENTS.md`、`~/.gemini/config/AGENTS.md`，§11） |
+| `codex/AGENTS.md`、`antigravity/AGENTS.md`、`hermes/SOUL.md` | Codex / Antigravity / Hermes 全局工作协议源（受管 block 分别同步至 `~/.codex/AGENTS.md`、`~/.gemini/config/AGENTS.md`、`%LOCALAPPDATA%/hermes/SOUL.md`，§11） |
 | `skills-source/` | 技能源目录，分为 `shared/`、`codex-only/` |
 | `codex/skills/` | 构建生成的 Codex 技能目录，Git 忽略，勿手改 |
 | `manifests/managed-skills.codex.txt` | Codex 受管技能名单，由 build 刷新 |
 | `manifests/whitelist.psd1` | config-sync 的 Push/Pull items 与 ExcludedItems（§11） |
-| `harness-source/` | 环境定义 `envs/`（§13）、profile/component 源（§12）、Antigravity 插件清单（§15）与受管 MCP 注册表 `mcp/servers.psd1`（§16） |
+| `harness-source/` | 环境定义 `envs/`（§13）、profile/component 源（§12）、Antigravity 插件清单（§15）、Hermes 技能清单 `hermes/skills.psd1`（§18）与受管 MCP 注册表 `mcp/servers.psd1`（§16） |
 | `.agent-harness/profile.psd1` | 当前项目的 profile 声明（§12） |
 | `.agent-harness/generated/` | 项目本地 profile 生成物，Git-ignored，可重建 |
 | `tools/gitleaks/` | pinned gitleaks 的版本、下载地址与校验锁 |
@@ -271,18 +271,18 @@ profile 写失败时，将当前尝试写入的文件也纳入 best-effort rollb
 
 ## 11. Harness 配置同步（config-sync）
 
-配置 status/pull/push 默认只处理 Codex。传入 `-Platform Antigravity` 可选择 `antigravity/AGENTS.md` 与 `~/.gemini/config/AGENTS.md`。
+配置 status/pull/push 默认只处理 Codex。传入 `-Platform Antigravity` 可选择 `antigravity/AGENTS.md` 与 `~/.gemini/config/AGENTS.md`；传入 `-Platform Hermes` 可选择 `hermes/SOUL.md` 与 `%LOCALAPPDATA%\hermes\SOUL.md`。
 组合部署沿用 Codex-only 默认。
 
 除 skills 外，仓库还管理 harness 配置。源是 `manifests/whitelist.psd1`（每平台的 Push/Pull items 与
 ExcludedItems，以及所有平台都不捕获的 `CommonExcludedItems`：密钥、证书、备份与临时文件类）。
 
-- `config-status.ps1`：只读 drift 报告（repo ↔ home），逐项报告 in-sync / differs / repo-only / home-only，遵守 ExcludedItems。
-  Codex 与 Antigravity `AGENTS.md` 均比较受管 block；缺少 block 时报告 `managed block missing`，不能按整文件相同视为已同步。
+- `config-status.ps1`：只读 drift 报告（repo ↔ home），逐项报告 in-sync / differs / repo-only / home-only / not-installed / blocked，遵守 ExcludedItems。
+  Codex、Antigravity `AGENTS.md` 与 Hermes `SOUL.md` 均比较受管 block；缺少 block 时报告 `managed block missing`，不能按整文件相同视为已同步。Hermes 未安装时只读报告 `not-installed`，遇到非默认 `HERMES_HOME`、`HERMES_DATA_DIR_SUFFIX`、非 `default` 的 `active_profile` 或 reparse point 时报告 `blocked`。
   `-Json` 输出文件级状态数组。
 - `config-pull.ps1`：repo → home。默认 dry-run（仅预览模式支持 `-Json`，抑制控制台文本并输出 `SchemaVersion = 1` 的结构化计划，含 `Platforms`、`Summary`、`Items`，不含 `HomeRoot` 或文件内容，禁止与 `-Apply` 同用）；`-Apply` 先扫密、逐文件备份被覆盖项再写入。
-  Codex 与 Antigravity `AGENTS.md` 分别只更新 `<!-- BEGIN AI-AGENT-DOTFILES: codex/AGENTS.md -->` /
-  `<!-- BEGIN AI-AGENT-DOTFILES: antigravity/AGENTS.md -->` 对应的受管 block，block 外的个人文本保留。
+  Codex、Antigravity `AGENTS.md` 与 Hermes `SOUL.md` 分别只更新 `<!-- BEGIN AI-AGENT-DOTFILES: codex/AGENTS.md -->` /
+  `<!-- BEGIN AI-AGENT-DOTFILES: antigravity/AGENTS.md -->` / `<!-- BEGIN AI-AGENT-DOTFILES: hermes/SOUL.md -->` 对应的受管 block，block 外的个人文本保留。Hermes 在未安装、非默认覆写或非 `default` profile 时 fail closed 拒绝写入，绝不创建假 Hermes 根目录。
   已有文件没有 block 时，仅当内容已等于 repo 才自动包裹；否则 fail closed，要求先手工放置 block。
   备份默认写入 `~\.ai-agent-dotfiles-backups\config-backup-<UTC 时间戳>\`（`-BackupRoot` 可改）；
   不整目录 mirror、不 prune（home-only 文件原样保留）。捕获复制异常后，尽力回滚本次已尝试写入的文件：
@@ -292,8 +292,8 @@ ExcludedItems，以及所有平台都不捕获的 `CommonExcludedItems`：密钥
   `~\.ai-agent-dotfiles-backups\config-push-stage-<UTC 时间戳>\`，再过两道 gate：扫密 + 机器私有路径扫描
   （盘符/UNC 绝对路径），任一命中即回滚全部捕获。结果保持未提交，必须人工 `git diff` 审查后再提交。
   `-SkipPathScan` 仅在绝对路径确属有意时使用。
-  Codex 与 Antigravity 的 `AGENTS.md` 只捕获对应受管块的正文。已有文件缺少该块时，预览和捕获都会停止。先核对要共享的规则、标出受管范围，再重新预览，个人规则留在块外。
-- Codex `config.toml` 和私有 `.env` 不纳入；push 仅捕获本机已有的白名单文件。
+  Codex、Antigravity `AGENTS.md` 与 Hermes `SOUL.md` 只捕获对应受管块的正文。已有文件缺少该块时，预览和捕获都会停止。先核对要共享的规则、标出受管范围，再重新预览，个人规则留在块外。
+- Codex `config.toml`、Hermes `config.yaml` / `auth.json` / `vault/` / `memories/` / `sessions/` 和私有 `.env` 不纳入；push 仅捕获本机已有的白名单文件。
 - 模板沿用用户选择的模型与推理档位，同步前按 dry-run 核对受管内容。
 - `deploy.ps1` 把 skills 与 config-pull 串成一个 dry-run/apply 入口；两阶段不原子，
   config 失败不会回滚已完成的 skills。只用 skills 时直接运行 `deploy-skills.ps1`。
@@ -418,7 +418,7 @@ pwsh -NoProfile -File scripts/deploy-skills.ps1 -Environment full
 
 ```text
 help                         显示用法
-status                       -> 统一只读状态汇总（环境、Codex Live Skills、config、antigravity、mcp）[-Json]
+status                       -> 统一只读状态汇总（环境、Codex Live Skills、config、antigravity、hermes、mcp）[-Json]
 dashboard                    -> scripts/dashboard.ps1（启动或复用本地中文监控台）
 doctor                       -> scripts/doctor.ps1
 build                        -> scripts/build-skills.ps1
@@ -430,23 +430,24 @@ config status | pull | push
 profile status | build | apply
 skills promote               -> scripts/promote-skill.ps1
 antigravity build | status | deploy -> scripts/antigravity-plugins.ps1 -Action <action>
+hermes status | deploy       -> scripts/hermes-skills.ps1 -Action <action>
 mcp status | deploy          -> scripts/mcp-sync.ps1 -Action <action>
 ```
 
 用 `pwsh -NoProfile -File scripts/agent-dotfiles.ps1 help` 查看命令概览。
-用 `help config` 或 `config help` 查看分组帮助；`status`、`dashboard`、`env`、`profile`、`skills`、`antigravity`、`mcp` 支持相同拼法。
+用 `help config` 或 `config help` 查看分组帮助；`status`、`dashboard`、`env`、`profile`、`skills`、`antigravity`、`hermes`、`mcp` 支持相同拼法。
 帮助说明操作方向、写入范围和常用示例，不执行子脚本。`config push` 仅捕获本机配置到仓库，不是 Git push。
 
 doctor 的 WARN 和退出码保持原有语义，摘要另列已检测到的 `Deploy blockers`。
-Codex 的两个 live 根同时存在时会阻塞部署。对于缺少平台根目录、dirty tree 或跳过 secret scan 等提醒，按各项提示判断。
+Codex 的两个 live 根同时存在时会阻塞部署。若 Hermes 默认根不存在，doctor 记为 `INFO`（不触发 WARN）；出现覆盖环境变量、非 `default` profile、文件占坑或重解析点时记为 `WARN`。对于缺少平台根目录、dirty tree 或跳过 secret scan 等提醒，按各项提示判断。
 `none detected by these checks` 也不表示部署已通过预检，仍须审查 dry-run。
 
-只读命令：`status`、`doctor`、`scan`、不带 `-JsonPath` 的 `env list`、`config status`、`profile status`、`antigravity status`、`mcp status`。`build` 与 `profile build`
-只生成可重建输出；`env list -JsonPath`、`antigravity` 与 `mcp` 传入 `-JsonPath` 还会写入指定的报告文件。会写 live home、`skills-source/` 或项目目标的命令（`sync`、`env deploy`、`config pull/push`、
-`profile apply`、`skills promote`、`antigravity deploy`、`mcp deploy`）要求显式 `-DryRun` 或 `-Apply`，统一入口不会自动补 `-Apply`。
+只读命令：`status`、`doctor`、`scan`、不带 `-JsonPath` 的 `env list`、`config status`、`profile status`、`antigravity status`、`hermes status`、`mcp status`。`build` 与 `profile build`
+只生成可重建输出；`env list -JsonPath`、`antigravity`、`hermes` 与 `mcp` 传入 `-JsonPath` 还会写入指定的报告文件。会写 live home、`skills-source/` 或项目目标的命令（`sync`、`env deploy`、`config pull/push`、
+`profile apply`、`skills promote`、`antigravity deploy`、`hermes deploy`、`mcp deploy`）要求显式 `-DryRun` 或 `-Apply`，统一入口不会自动补 `-Apply`。
 `sync` 与 `env deploy` 都串行执行 skills 和 config；两阶段不原子。直接运行低层脚本可只执行单个阶段。
 
-顶层 `status` 命令并发拉取 `config-status.ps1`、`antigravity-plugins.ps1`、`mcp-sync.ps1` 及（在已记录环境且本地构建存在时）`deploy-skills.ps1 -Environment <recorded> -SkipBuild -Json`，在文本输出中呈现 `[Codex Live Skills]` 摘要，在 `-Json` 中输出顶层 `Skills`（`State` 为 `checked` / `build-required` / `unavailable` / `error`）与 `Summary.Skills`。当已记录环境为 `unavailable` 或尚未生成 `codex/skills/` 时，仅标为 `unavailable` / `build-required` 而不触发非零退出码；遇到双 live 根冲突、重解析点或文件占坑等真实 live 根异常时才置为 `error` 并返回非零。底层命令支持 `-Json` 时也可直接透传（如 `profile status -ProjectRoot <project> -Json`、`mcp status -Json`、`deploy-skills.ps1 -Environment work -Json`、`config-pull.ps1 -Platform Antigravity -Json`），统一 CLI 会抑制自己的调用提示和结果提示，让 stdout 保持底层 JSON。`env list` 使用上面的 `-JsonPath`，不支持 `-Json`。
+顶层 `status` 命令并发拉取 `config-status.ps1`（`Codex,Antigravity,Hermes`）、`antigravity-plugins.ps1`、`hermes-skills.ps1`、`mcp-sync.ps1` 及（在已记录环境且本地构建存在时）`deploy-skills.ps1 -Environment <recorded> -SkipBuild -Json`，在文本输出中呈现 `[Codex Live Skills]` 与 `[Hermes Skills]` 摘要，在 `-Json` 中输出顶层 `Skills` 与 `Hermes` 以及 `Summary.Skills` / `Summary.Hermes`。Hermes 返回 `checked`、`not-installed` 或 `blocked` 时均保持退出码 `0`；仅在子进程缺失、超时、非零退出或非法 JSON 时记为错误并返回非零。底层命令支持 `-Json` 时也可直接透传（如 `profile status -ProjectRoot <project> -Json`、`hermes status -Json`、`mcp status -Json`、`deploy-skills.ps1 -Environment work -Json`、`config-pull.ps1 -Platform Antigravity -Json`），统一 CLI 会抑制自己的调用提示和结果提示，让 stdout 保持底层 JSON。`env list` 使用上面的 `-JsonPath`，不支持 `-Json`。
 
 
 ## 15. Antigravity 插件
@@ -522,19 +523,19 @@ CLI 新进程不传 `--continue` 或 `--conversation` 时为独立会话。显�
 
 ## 16. 受管 MCP 分发（mcp-sync）
 
-`harness-source/mcp/servers.psd1`（`SchemaVersion = 1`、`Servers`）声明跨 **Antigravity、Codex** 双端投影的受管 MCP server（当前声明 `blender`），严禁写入明文密钥、Token、回车换行或本机盘符/UNC 路径：
+`harness-source/mcp/servers.psd1`（`SchemaVersion = 1`、`Servers`）声明跨 **Antigravity、Codex、Hermes** 三端投影的受管 MCP server（当前声明 `blender`），严禁写入明文密钥、Token、回车换行或本机盘符/UNC 路径：
 
-- **支持的传输与字段**：`stdio`（`Command`、`Args`、`Env`）与 `streamable-http`（`Url`、可选 `BearerTokenEnvVar`、`Headers`），并带 `Name`、`Enabled`、`Platforms` 与可选 `EnabledPolicy`（`'enforce'` 默认强制启用态同步，或 `'preserve-disabled'`）。当 `Enabled = $true` 且 `EnabledPolicy = 'preserve-disabled'`（当前 `blender` 采用此策略）时，若 Codex 本机已存在条目且仅 `enabled = false` 而命令、参数、环境变量等其余字段一致，规划器记为 `unchanged`（原因 `managed-entry-match-local-disabled`）；一旦发生命令或环境漂移仍报 `update`。未知 `EnabledPolicy` 值会在读取阶段被拒绝。
-- **凭据与平台约束**：注册表读取阶段要求 `Env` 中敏感键名（`api_key` / `token` / `secret` / `password` / `passwd` / `credential`）必须写成 `${ENV_VAR}` 占位符，而 `Codex` 投影器目前不支持 `${...}` 环境变量模板展开；遇到不兼容项、重复键、非法 JSON 或缺失 `codex` CLI 时，规划器 fail closed 报告 `blocked`，不会猜测或写入。
+- **支持的传输与字段**：`stdio`（`Command`、`Args`、`Env`）与 `streamable-http`（`Url`、可选 `BearerTokenEnvVar`、`Headers`），并带 `Name`、`Enabled`、`Platforms` 与可选 `EnabledPolicy`（`'enforce'` 默认强制启用态同步，或 `'preserve-disabled'`）。当 `Enabled = $true` 且 `EnabledPolicy = 'preserve-disabled'`（当前 `blender` 采用此策略）时，若 Codex 或 Hermes 本机已存在条目且仅 `enabled = false` 而命令、参数、环境变量等其余字段一致，规划器记为 `unchanged`（原因 `managed-entry-match-local-disabled`）；一旦发生命令或环境漂移仍报 `update`。未知 `EnabledPolicy` 值会在读取阶段被拒绝。
+- **凭据与平台约束**：注册表读取阶段要求 `Env` 中敏感键名（`api_key` / `token` / `secret` / `password` / `passwd` / `credential`）必须写成 `${ENV_VAR}` 占位符，而 `Codex` 投影器目前不支持 `${...}` 环境变量模板展开；遇到不兼容项、重复键、非法 JSON/YAML、非默认 Hermes 路径/profile 或缺失 `codex` CLI 时，规划器 fail closed 报告 `blocked`，不会猜测或写入。Hermes 尚未安装时，只读状态与 `-DryRun` 报告 `not-installed`，`-Apply` 拒绝创建假 Hermes 根目录。
 
 ```powershell
 pwsh -NoProfile -File scripts/agent-dotfiles.ps1 mcp status
 pwsh -NoProfile -File scripts/agent-dotfiles.ps1 mcp deploy -DryRun
-pwsh -NoProfile -File scripts/agent-dotfiles.ps1 mcp deploy -Platform Antigravity -Server blender -DryRun
+pwsh -NoProfile -File scripts/agent-dotfiles.ps1 mcp deploy -Platform Antigravity,Hermes -Server blender -DryRun
 pwsh -NoProfile -File scripts/agent-dotfiles.ps1 mcp deploy -Apply
 ```
 
-常用参数：`-Platform Antigravity|Codex`（可逗号分隔）、`-Server <name>`、`-Json`、`-JsonPath <file>`、`-BackupRoot <path>`、`-SkipSecretScan`（仅 `deploy` 接受 `-DryRun` / `-Apply` / `-BackupRoot` / `-SkipSecretScan`）。
+常用参数：`-Platform Antigravity|Codex|Hermes`（可逗号分隔）、`-Server <name>`、`-Json`、`-JsonPath <file>`、`-BackupRoot <path>`、`-SkipSecretScan`（仅 `deploy` 接受 `-DryRun` / `-Apply` / `-BackupRoot` / `-SkipSecretScan`）。
 
 各端按条目投影并保留非托管条目与个人设置：
 
@@ -542,6 +543,7 @@ pwsh -NoProfile -File scripts/agent-dotfiles.ps1 mcp deploy -Apply
 |---|---|---|
 | **Antigravity** | `~/.gemini/config/mcp_config.json` 下的 `mcpServers.<name>`（结构化 JSON 合并） | 其他非托管 `mcpServers` 与顶层字段 |
 | **Codex** | 仅通过官方 `codex mcp list/get/add/remove` CLI 逐项投影 | `[projects.*]`、`[model_providers.*]`、模型设置与非托管 `[mcp_servers.*]`（不整文件改写 `config.toml`） |
+| **Hermes** | `%LOCALAPPDATA%/hermes/config.yaml` 下的 `mcp_servers.<name>`（结构化 YAML 块按条目投影，默认根与 `default` profile） | 其他非托管 `mcp_servers` 与其余 YAML 顶层配置（不经 `config-sync` 全文件同步 `config.yaml`） |
 
 安全与回滚门禁：
 
@@ -580,3 +582,20 @@ pwsh -NoProfile -File scripts/agent-dotfiles.ps1 dashboard -Check
 - **强制先预览后确认（DryRun -> Apply）**：所有写入本机的同步按钮（Codex 完整/仅技能同步、Antigravity 全局规则/插件部署、受管 MCP 同步）只能先触发 `-DryRun` 预览（其中 `codex-skills`、`antigravity-config` 与 `mcp` 消费结构化 `-Json` 输出）。预览成功后生成绑定当前 `git HEAD` 与受管工作区源码指纹、300 秒有效且原子单次消费的 `preview_id`；若出现 `blocked`、需重建插件包、当前已全部同步无变更或提交记录/受管源码指纹发生变化，Apply 按钮保持禁用或被后端拒绝。只有在预览无阻塞、存在待变更项且人工勾选确认框后，才允许执行对应的 `-Apply`，完成后自动刷新状态读回。
 - **高风险操作边界**：Git 提交/推送、`config push`（本机回抓）与 `-Retire`（删除旧技能）不提供面板一键写入，仍须在 AI 对话中审查后执行。
 - 回归测试：`pwsh -NoProfile -File scripts/run-tests.ps1 -Suite dashboard`（或直接运行 `pwsh -NoProfile -File tests/dashboard.tests.ps1`）会同时执行 `tests/dashboard_server_test.py` 单元测试与隔离 PowerShell 集成测试。
+
+---
+
+## 18. Hermes 共享技能（hermes-skills）
+
+`harness-source/hermes/skills.psd1`（`SchemaVersion = 1`、`Category = 'ai-agent-dotfiles'`）声明向 Hermes 部署的 8 个跨端共享技能：`brainstorming`、`git-review`、`meng-cmame-writing`、`multimodal-generation`、`paper-polish`、`session-learnings`、`verification-before-completion` 与 `writing-plans`（排除 `systematic-debugging` 与 `tool-scope`）。目标落点固定为 `%LOCALAPPDATA%\hermes\skills\ai-agent-dotfiles\`：
+
+```powershell
+pwsh -NoProfile -File scripts/agent-dotfiles.ps1 hermes status
+pwsh -NoProfile -File scripts/agent-dotfiles.ps1 hermes deploy -DryRun
+pwsh -NoProfile -File scripts/agent-dotfiles.ps1 hermes deploy -Apply
+```
+
+- **默认根与 fail-closed 保护**：仅针对默认 `%LOCALAPPDATA%\hermes` 与 `default` profile 运行。若设置了非默认 `HERMES_HOME`、`HERMES_DATA_DIR_SUFFIX`、非 `default` 的 `active_profile`、遇到 reparse point 或同级 `skills\` 下存在与受管技能同名的本地目录，状态报告 `blocked` 且 `-Apply` 拒绝写入；Hermes 尚未安装时，`status` 与 `-DryRun` 报告 `not-installed`，`-Apply` 拒绝创建假根目录。
+- **原子替换与状态记录**：部署按目录经同级 `.deploying-<name>` 暂存切换（排除 `CREATION-LOG.md`），先备份 `update`/`prune` 目标再写，并将归属记录写入 `%LOCALAPPDATA%\ai-agent-dotfiles.deploy\hermes\deployed-skills.json`。仅 `prune` 本工具记录过或 `-Retire` 显式点名的目录，未知目录原样保留。
+- **独立授权边界**：`deploy.ps1`（`sync` / `env deploy`）与 `AGENTS.md` Skill rules 10 保持 Codex-only，不自动部署 Hermes；每次 `hermes deploy -Apply` 须在审阅当前完整 `-DryRun` 后取得所有者授权。
+- **回归测试**：`pwsh -NoProfile -File tests/hermes-skills.tests.ps1`。

@@ -46,7 +46,7 @@ that load only the workspace entry can follow them. Open linked guides for the o
   continue. Ask only when a decision that changes direction is missing or an approval is required.
 - Make small commits that contain only reviewed changes from the current task, and report which
   checks actually ran.
-- Templates in `harness-source/`, `codex/` and `antigravity/` carry no model or reasoning-effort
+- Templates in `harness-source/`, `codex/`, `antigravity/`, and `hermes/` carry no model or reasoning-effort
   defaults. Use the user's selection or the runtime default. When deploying config, preserve the
   user's personal overrides.
 
@@ -54,9 +54,10 @@ that load only the workspace entry can follow them. Open linked guides for the o
 
 | Task | Source or entry point |
 |---|---|
-| Cross-project preferences | `codex/AGENTS.md`, `antigravity/AGENTS.md`. |
+| Cross-project preferences | `codex/AGENTS.md`, `antigravity/AGENTS.md`, `hermes/SOUL.md`. |
 | Repeatable workflow | Edit one skill under `skills-source/`. Put the trigger in its description and load detailed references when needed. The environment selects skills per host. |
 | Antigravity plugin package | `harness-source/antigravity/plugins.psd1` selects the skills the package ships. |
+| Hermes shared skills selection | `harness-source/hermes/skills.psd1` selects the shared skills deployed under `%LOCALAPPDATA%/hermes/skills/ai-agent-dotfiles/`. |
 | External tools and data | `harness-source/mcp/servers.psd1` lists managed connections. Check live tool use from the named host. |
 
 See the [operations manual](docs/README.md) for deployment, restore and profile commands.
@@ -111,11 +112,18 @@ need them.
 8. **Config and profiles.**
    - `config-pull` and `config-push` run as dry runs unless `-Apply` is given.
    - `config-pull -Apply` defaults to Codex home config in `~/.codex`. Select Antigravity
-     explicitly with `-Platform Antigravity`. Each host's `AGENTS.md` updates only its marked block.
+     explicitly with `-Platform Antigravity`, or Hermes with `-Platform Hermes` (targeting only
+     the `%LOCALAPPDATA%/hermes/SOUL.md` managed block under the default profile, failing closed
+     on `HERMES_HOME` override, `HERMES_DATA_DIR_SUFFIX`, non-default `active_profile`, or
+     missing/reparse Hermes root). Each host's `AGENTS.md` or `SOUL.md` updates only its marked block.
      Review the dry run and confirm the managed changes. Apply needs explicit owner authorization
      covering this config deployment. An existing finite task grant can satisfy it.
    - `apply-harness-profile.ps1 -Apply` writes only allowlisted files inside the target project.
      It never writes a home directory or a live root.
+   - Hermes shared skills deployment uses the separate `scripts/hermes-skills.ps1` (or
+     `agent-dotfiles.ps1 hermes status|deploy`) entry, targeting `%LOCALAPPDATA%/hermes/skills/ai-agent-dotfiles/`
+     for the 8 skills declared in `harness-source/hermes/skills.psd1` (`deploy.ps1` and Skill rules 10
+     remain Codex-only). Review the dry run before authorized Apply.
 9. **Retired full-environment exception.** The standing grant in Skill rules 10 applies only
    to matching `work` Codex updates.
 
@@ -159,14 +167,15 @@ need them.
   blocks tokens, not machine-private paths or personal content.
 - Never put plaintext secrets, tokens, account info, machine names or machine-private paths in
   skills, tracked docs or commits.
-- Machine-private configuration including whole Codex `config.toml`, private `.env` files,
-  credentials, sessions and caches are never synced (`config-pull` and `config-push` continue to
-  exclude `config.toml` completely). Managed MCP server definitions declared under
-  `harness-source/mcp/` (no secrets, tokens or machine-private paths) may be projected only per
-  declared server entry — via the official `codex mcp` CLI for Codex and structured per-entry
-  JSON merge for Antigravity (`~/.gemini/config/mcp_config.json`) — preserving all unmanaged servers and personal
-  settings. Every MCP Apply requires dry-run review and explicit owner authorization (not covered
-  by Skill rules 10).
+- Machine-private configuration including whole Codex `config.toml`, Hermes `config.yaml` / `auth.json` /
+  `vault/` / `memories/` / `sessions/`, private `.env` files, credentials, sessions and caches are never
+  synced (`config-pull` and `config-push` continue to exclude Codex `config.toml` and Hermes `config.yaml`
+  completely). Managed MCP server definitions declared under `harness-source/mcp/` (no secrets, tokens
+  or machine-private paths) may be projected only per declared server entry — via the official `codex mcp`
+  CLI for Codex, structured per-entry JSON merge for Antigravity (`~/.gemini/config/mcp_config.json`), and
+  structured per-entry YAML merge under `mcp_servers` for Hermes (`%LOCALAPPDATA%/hermes/config.yaml`,
+  default home and default profile only) — preserving all unmanaged servers and personal settings. Every
+  MCP Apply requires dry-run review and explicit owner authorization (not covered by Skill rules 10).
 
 ## Checks and CI
 
