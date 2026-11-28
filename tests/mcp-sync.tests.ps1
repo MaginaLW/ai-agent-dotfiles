@@ -163,6 +163,7 @@ try {
     $realRegistry = Read-McpServerRegistry -RepoRoot $suiteRepo
     Assert-McpTest ($realRegistry.Servers.Count -eq 1 -and $realRegistry.Servers[0].Name -ceq 'blender') 'real servers.psd1 validates and declares blender'
     Assert-McpTest ($realRegistry.Servers[0].Command -ceq 'uvx' -and (($realRegistry.Servers[0].Args -join ' ') -ceq 'mcp-for-blender')) 'blender declares uvx mcp-for-blender'
+    Assert-McpTest (($realRegistry.Servers[0].Platforms -join ',') -ceq 'Antigravity,Codex,Hermes') 'real servers.psd1 declares Antigravity, Codex, and Hermes for blender'
 
     $badPrivatePath = 'C:' + '\private\blender.exe'
     $badPathFix = New-McpFixture -Name 'bad-path' -ServersPsd1Content "@{ SchemaVersion = 1; Servers = @(@{ Name = 'x'; Transport = 'stdio'; Command = '$badPrivatePath'; Args = @(); Env = @{}; Enabled = `$true; Platforms = @('Codex') }) }"
@@ -200,17 +201,21 @@ try {
 
     Assert-McpTest ($realRegistry.Servers[0].EnabledPolicy -ceq 'preserve-disabled') 'real servers.psd1 sets EnabledPolicy = preserve-disabled on blender'
 
-    Write-Host 'mcp-sync: clean empty home status/dry-run and full Apply across Antigravity and Codex'
+    Write-Host 'mcp-sync: clean empty home status/dry-run and full Apply across Antigravity, Codex, and Hermes'
     $f1 = New-McpFixture -Name 'full-apply'
     $status1 = Get-McpPlan -RepoRoot $f1.Repo -HomeRoot $f1.Home
-    Assert-McpTest ($status1.Summary.add -eq 2 -and $status1.Summary.blocked -eq 0) 'empty home plans add for Antigravity and Codex'
-    Assert-McpTest (-not (Test-Path (Join-Path $f1.Home '.gemini')) -and -not (Test-Path (Join-Path $f1.Home '.codex')) -and -not (Test-Path (Join-Path $f1.Home '.zcode'))) 'Status does not create live directories'
+    $hmStatus1 = @($status1.Items | Where-Object { $_.Platform -ceq 'Hermes' })[0]
+    Assert-McpTest ($status1.Summary.add -eq 2 -and $status1.Summary.'not-installed' -eq 1 -and $status1.Summary.blocked -eq 0 -and $hmStatus1.Action -ceq 'not-installed' -and $hmStatus1.Reason -ceq 'hermes-not-installed') 'empty home plans add for Antigravity and Codex and not-installed for Hermes'
+    Assert-McpTest (-not (Test-Path (Join-Path $f1.Home '.gemini')) -and -not (Test-Path (Join-Path $f1.Home '.codex')) -and -not (Test-Path (Join-Path $f1.Home 'AppData')) -and -not (Test-Path (Join-Path $f1.Home '.zcode'))) 'Status does not create live directories'
 
     $dry1 = Invoke-McpDeploy -RepoRoot $f1.Repo -HomeRoot $f1.Home -BackupRoot $f1.Backup
-    Assert-McpTest ($dry1.Summary.add -eq 2 -and $script:McpTestScanCalls -eq 0) 'Deploy without -Apply runs dry-run without secret scan or writes'
-    Assert-McpTest (-not (Test-Path (Join-Path $f1.Home '.gemini')) -and -not (Test-Path (Join-Path $f1.Home '.codex')) -and -not (Test-Path (Join-Path $f1.Home '.zcode'))) 'Dry-run writes no live files'
+    Assert-McpTest ($dry1.Summary.add -eq 2 -and $dry1.Summary.'not-installed' -eq 1 -and $script:McpTestScanCalls -eq 0) 'Deploy without -Apply runs dry-run without secret scan or writes'
+    Assert-McpTest (-not (Test-Path (Join-Path $f1.Home '.gemini')) -and -not (Test-Path (Join-Path $f1.Home '.codex')) -and -not (Test-Path (Join-Path $f1.Home 'AppData')) -and -not (Test-Path (Join-Path $f1.Home '.zcode'))) 'Dry-run writes no live files'
 
-    # Populate unmanaged servers and personal settings on both active platforms before Apply.
+    Assert-McpThrows { Invoke-McpDeploy -RepoRoot $f1.Repo -HomeRoot $f1.Home -Platform Hermes -BackupRoot $f1.Backup -DoApply } 'Hermes not installed at default home' 'explicit -Platform Hermes -Apply fails closed when Hermes is not installed'
+    Assert-McpTest (-not (Test-Path (Join-Path $f1.Home 'AppData'))) 'failed Hermes-only Apply creates no AppData directory'
+
+    # Populate unmanaged servers and personal settings on active platforms before multi-platform Apply (Hermes remains not-installed).
     Set-TestFile -Path (Join-Path $f1.Home '.gemini/config/mcp_config.json') -Content '{"theme":"dark","mcpServers":{"custom_ag":{"command":"node","args":["a.js"]}}}'
     Set-TestFile -Path (Join-Path $f1.Home '.codex/config.toml') -Content "# user codex config`nmodel = `"gpt-5`"`n[mcp_servers.custom_cx]`ncommand = `"node`"`n"
     $script:McpTestCodexEntries = @(
@@ -222,7 +227,8 @@ try {
     )
 
     $apply1 = Invoke-McpDeploy -RepoRoot $f1.Repo -HomeRoot $f1.Home -BackupRoot $f1.Backup -DoApply
-    Assert-McpTest ($script:McpTestScanCalls -eq 1 -and $apply1.Summary.unchanged -eq 2 -and $apply1.Summary.add -eq 0 -and $apply1.Summary.update -eq 0) 'Apply runs secret scan and converges Antigravity and Codex to unchanged'
+    Assert-McpTest ($script:McpTestScanCalls -eq 1 -and $apply1.Summary.unchanged -eq 2 -and $apply1.Summary.'not-installed' -eq 1 -and $apply1.Summary.add -eq 0 -and $apply1.Summary.update -eq 0) 'multi-platform Apply runs secret scan, converges Antigravity/Codex, and skips not-installed Hermes'
+    Assert-McpTest (-not (Test-Path (Join-Path $f1.Home 'AppData'))) 'multi-platform Apply without Hermes does not create AppData/Local/hermes'
     Assert-McpTest ($apply1.Contains('BackupDir') -and (Test-Path -LiteralPath (Join-Path $apply1.BackupDir '.gemini/config/mcp_config.json')) -and (Test-Path -LiteralPath (Join-Path $apply1.BackupDir '.codex/config.toml'))) 'pre-Apply backups captured for all modified files'
 
     $agJson = Get-Content -Raw -LiteralPath (Join-Path $f1.Home '.gemini/config/mcp_config.json') | ConvertFrom-Json -AsHashtable
@@ -247,7 +253,7 @@ try {
 
     $script:McpTestCodexCalls.Clear()
     $apply2 = Invoke-McpDeploy -RepoRoot $f1.Repo -HomeRoot $f1.Home -BackupRoot $f1.Backup -DoApply
-    Assert-McpTest ($apply2.Summary.unchanged -eq 2 -and ($script:McpTestCodexCalls -contains 'mcp remove blender') -and ($script:McpTestCodexCalls -contains 'mcp add blender --env BLENDER_PORT=9800 -- uvx mcp-for-blender')) 'update removes then re-adds Codex entry and converges all targets'
+    Assert-McpTest ($apply2.Summary.unchanged -eq 2 -and $apply2.Summary.'not-installed' -eq 1 -and ($script:McpTestCodexCalls -contains 'mcp remove blender') -and ($script:McpTestCodexCalls -contains 'mcp add blender --env BLENDER_PORT=9800 -- uvx mcp-for-blender')) 'update removes then re-adds Codex entry and converges all targets'
 
     Write-Host 'mcp-sync: fail-closed boundaries (scan failure, invalid JSON, Codex template/unavailable/failure)'
     $f2 = New-McpFixture -Name 'fail-closed'
@@ -493,6 +499,259 @@ throw "Unexpected fake codex args: $joined"
     )
     $preserveDriftPlan = Get-McpPlan -RepoRoot $fPreserve.Repo -HomeRoot $fPreserve.Home -Platform @('Codex')
     Assert-McpTest ($preserveDriftPlan.Items[0].Action -ceq 'update' -and $preserveDriftPlan.Items[0].State -ceq 'different' -and $preserveDriftPlan.Items[0].Reason -ceq 'managed-entry-differs' -and ($preserveDriftPlan.Items[0].Changes -contains '~ /args')) 'EnabledPolicy = preserve-disabled still detects real field drift as update'
+
+    Write-Host 'mcp-sync: Hermes YAML surgical merge, preservation, CRLF/LF, and scalar handling'
+    $fHmPreserve = New-McpFixture -Name 'hermes-preserve-crlf'
+    $hmDir = Join-Path $fHmPreserve.Home 'AppData\Local\hermes'
+    [IO.Directory]::CreateDirectory($hmDir) | Out-Null
+    $hmCfgPath = Join-Path $hmDir 'config.yaml'
+    $crlfYaml = @(
+        '# top header comment',
+        'model: "gpt-5" # keep inline comment',
+        'system_prompt: |',
+        '  You are Hermes.',
+        '  mcp_servers:',
+        '    fake_inside_block: true',
+        '',
+        'mcp_servers:',
+        '  # unmanaged comment with # hash',
+        '  custom_hm:',
+        '    command: "node"',
+        '    args: ["srv.js", "hello # world"]',
+        '    extra_note: "keep # verbatim"',
+        '    timeout: 45',
+        '',
+        '  blender:',
+        '    command: "uvx"',
+        '    args:',
+        '      - "old-pkg"',
+        '    disabled: false',
+        '',
+        '# footer comment',
+        'theme: "dark"'
+    ) -join "`r`n"
+    $crlfYaml += "`r`n"
+    [IO.File]::WriteAllText($hmCfgPath, $crlfYaml, [Text.UTF8Encoding]::new($false))
+
+    $hmPlan1 = Get-McpPlan -RepoRoot $fHmPreserve.Repo -HomeRoot $fHmPreserve.Home -Platform Hermes
+    Assert-McpTest ($hmPlan1.Summary.update -eq 1 -and $hmPlan1.Items[0].UnmanagedCount -eq 1 -and $hmPlan1.Items[0].Target -ceq '%LOCALAPPDATA%/hermes/config.yaml#mcp_servers.blender') 'Hermes detects drifted managed server and counts unmanaged server'
+
+    $hmApply1 = Invoke-McpDeploy -RepoRoot $fHmPreserve.Repo -HomeRoot $fHmPreserve.Home -Platform Hermes -BackupRoot $fHmPreserve.Backup -DoApply
+    Assert-McpTest ($hmApply1.Summary.unchanged -eq 1 -and $hmApply1.Items[0].UnmanagedCount -eq 1 -and (Test-Path -LiteralPath (Join-Path $hmApply1.BackupDir 'AppData\Local\hermes\config.yaml'))) 'Hermes Apply backs up config.yaml, converges, and preserves UnmanagedCount'
+
+    $afterCrlf = [IO.File]::ReadAllText($hmCfgPath)
+    Assert-McpTest ($afterCrlf.Contains("`r`n") -and ($afterCrlf -notmatch "(?<!`r)`n")) 'Hermes Apply preserves CRLF line endings without bare LF'
+    Assert-McpTest ($afterCrlf.Contains("# top header comment`r`nmodel: `"gpt-5`" # keep inline comment`r`n") -and $afterCrlf.Contains("  mcp_servers:`r`n    fake_inside_block: true`r`n") -and $afterCrlf.Contains("# footer comment`r`ntheme: `"dark`"`r`n")) 'Hermes Apply preserves comments, unrelated keys, and block scalars verbatim'
+    Assert-McpTest ($afterCrlf.Contains("  # unmanaged comment with # hash`r`n  custom_hm:`r`n    command: `"node`"`r`n    args: [`"srv.js`", `"hello # world`"]`r`n    extra_note: `"keep # verbatim`"`r`n    timeout: 45`r`n")) 'Hermes Apply preserves unmanaged server entry byte-for-byte'
+    Assert-McpTest ($afterCrlf.Contains("  blender:`r`n    command: `"uvx`"`r`n    args:`r`n      - `"mcp-for-blender`"`r`n    env:`r`n      BLENDER_PORT: `"9800`"`r`n    enabled: true`r`n") -and (-not $afterCrlf.Contains('disabled: false'))) 'Hermes Apply writes 2-space double-quoted entry and drops legacy disabled key'
+
+    # LF preservation + append new server inside existing mcp_servers
+    $lfPsd1 = @'
+@{ SchemaVersion = 1; Servers = @(
+    @{ Name = 'blender'; Transport = 'stdio'; Command = 'uvx'; Args = @('mcp-for-blender'); Env = @{ BLENDER_PORT = '9800' }; Enabled = $true; Platforms = @('Hermes') }
+    @{ Name = 'added_srv'; Transport = 'stdio'; Command = 'node'; Args = @(); Enabled = $true; Platforms = @('Hermes') }
+) }
+'@
+    $fHmLf = New-McpFixture -Name 'hermes-lf-append' -ServersPsd1Content $lfPsd1
+    $hmLfDir = Join-Path $fHmLf.Home 'AppData\Local\hermes'
+    [IO.Directory]::CreateDirectory($hmLfDir) | Out-Null
+    $hmLfCfg = Join-Path $hmLfDir 'config.yaml'
+    $lfYaml = "# lf config`nmcp_servers:`n  blender:`n    command: `"uvx`"`n    args: [`"mcp-for-blender`"]`n    env:`n      BLENDER_PORT: `"9800`"`n# end`n"
+    [IO.File]::WriteAllText($hmLfCfg, $lfYaml, [Text.UTF8Encoding]::new($false))
+    $lfPlan = Get-McpPlan -RepoRoot $fHmLf.Repo -HomeRoot $fHmLf.Home -Platform Hermes
+    $lfBlender = @($lfPlan.Items | Where-Object { $_.Server -ceq 'blender' })[0]
+    $lfAdded = @($lfPlan.Items | Where-Object { $_.Server -ceq 'added_srv' })[0]
+    Assert-McpTest ($lfBlender.Action -ceq 'unchanged' -and $lfAdded.Action -ceq 'add') 'Hermes matches flow args and absent enabled (default true) while planning add for missing server'
+    $lfApply = Invoke-McpDeploy -RepoRoot $fHmLf.Repo -HomeRoot $fHmLf.Home -Platform Hermes -BackupRoot $fHmLf.Backup -DoApply
+    $afterLf = [IO.File]::ReadAllText($hmLfCfg)
+    Assert-McpTest ($lfApply.Summary.unchanged -eq 2 -and (-not $afterLf.Contains("`r`n")) -and $afterLf.Contains("args: []`n") -and $afterLf.Contains("# end`n")) 'Hermes Apply preserves LF endings, writes args: [] for empty args, and keeps trailing comment'
+
+    Write-Host 'mcp-sync: Hermes absent/empty config.yaml, empty mcp_servers: {}, same-indent args, ${ENV_VAR}, and streamable-http'
+    # Missing config.yaml inside installed dir
+    $fHmMissingCfg = New-McpFixture -Name 'hermes-missing-cfg'
+    [IO.Directory]::CreateDirectory((Join-Path $fHmMissingCfg.Home 'AppData\Local\hermes')) | Out-Null
+    $missingCfgApply = Invoke-McpDeploy -RepoRoot $fHmMissingCfg.Repo -HomeRoot $fHmMissingCfg.Home -Platform Hermes -BackupRoot $fHmMissingCfg.Backup -DoApply
+    Assert-McpTest ($missingCfgApply.Summary.unchanged -eq 1 -and (Test-Path -LiteralPath (Join-Path $fHmMissingCfg.Home 'AppData\Local\hermes\config.yaml'))) 'Hermes Apply creates config.yaml when dir exists and file is absent'
+
+    # Absent mcp_servers key + whitespace-only config + empty mcp_servers: {}
+    $fHmAbsentKey = New-McpFixture -Name 'hermes-absent-key'
+    [IO.Directory]::CreateDirectory((Join-Path $fHmAbsentKey.Home 'AppData\Local\hermes')) | Out-Null
+    Set-TestFile -Path (Join-Path $fHmAbsentKey.Home 'AppData\Local\hermes\config.yaml') -Content "model: `"gpt-5`""
+    $absentKeyApply = Invoke-McpDeploy -RepoRoot $fHmAbsentKey.Repo -HomeRoot $fHmAbsentKey.Home -Platform Hermes -BackupRoot $fHmAbsentKey.Backup -DoApply
+    $absentKeyText = [IO.File]::ReadAllText((Join-Path $fHmAbsentKey.Home 'AppData\Local\hermes\config.yaml'))
+    Assert-McpTest ($absentKeyApply.Summary.unchanged -eq 1 -and $absentKeyText.StartsWith("model: `"gpt-5`"`nmcp_servers:`n")) 'Hermes Apply appends mcp_servers: at EOF even without trailing newline'
+
+    $fHmEmptyMap = New-McpFixture -Name 'hermes-empty-map'
+    [IO.Directory]::CreateDirectory((Join-Path $fHmEmptyMap.Home 'AppData\Local\hermes')) | Out-Null
+    Set-TestFile -Path (Join-Path $fHmEmptyMap.Home 'AppData\Local\hermes\config.yaml') -Content "model: `"gpt-5`"`nmcp_servers: {} # empty`n"
+    $emptyMapApply = Invoke-McpDeploy -RepoRoot $fHmEmptyMap.Repo -HomeRoot $fHmEmptyMap.Home -Platform Hermes -BackupRoot $fHmEmptyMap.Backup -DoApply
+    $emptyMapText = [IO.File]::ReadAllText((Join-Path $fHmEmptyMap.Home 'AppData\Local\hermes\config.yaml'))
+    Assert-McpTest ($emptyMapApply.Summary.unchanged -eq 1 -and $emptyMapText.Contains("mcp_servers: # empty`n")) 'Hermes Apply expands empty mcp_servers: {} cleanly without duplicate key'
+
+    # Same-indent sequence, ${ENV_VAR}, and streamable-http + BearerTokenEnvVar + Headers
+    $tplVar = '$' + '{MEDIA_TOKEN}'
+    $bearerRef = '$' + '{BEARER_SECRET}'
+    $httpPsd1 = @"
+@{ SchemaVersion = 1; Servers = @(
+    @{ Name = 'media'; Transport = 'stdio'; Command = 'uvx'; Args = @('media-mcp'); Env = @{ MEDIA_TOKEN = '$tplVar' }; Enabled = `$true; Platforms = @('Hermes') }
+    @{ Name = 'http_auto'; Transport = 'streamable-http'; Url = 'https://example.invalid/mcp#v1'; BearerTokenEnvVar = 'BEARER_SECRET'; Headers = @{ 'X-Custom' = 'val # keep' }; Enabled = `$true; Platforms = @('Hermes') }
+    @{ Name = 'http_explicit'; Transport = 'streamable-http'; Url = 'https://example.invalid/auth'; BearerTokenEnvVar = 'BEARER_SECRET'; Headers = @{ Authorization = 'CustomToken'; 'X-Other' = 'ok' }; Enabled = `$true; Platforms = @('Hermes') }
+) }
+"@
+    $fHmHttp = New-McpFixture -Name 'hermes-http-tpl' -ServersPsd1Content $httpPsd1
+    [IO.Directory]::CreateDirectory((Join-Path $fHmHttp.Home 'AppData\Local\hermes')) | Out-Null
+    $httpApply = Invoke-McpDeploy -RepoRoot $fHmHttp.Repo -HomeRoot $fHmHttp.Home -Platform Hermes -BackupRoot $fHmHttp.Backup -DoApply
+    $httpState = Read-McpHermesConfigState -HomeRoot $fHmHttp.Home
+    Assert-McpTest ($httpApply.Summary.unchanged -eq 3 -and $httpState.Entries['media']['env']['MEDIA_TOKEN'] -ceq $tplVar) 'Hermes preserves ${ENV_VAR} templates verbatim on write and readback'
+    Assert-McpTest ($httpState.Entries['http_auto']['url'] -ceq 'https://example.invalid/mcp#v1' -and $httpState.Entries['http_auto']['headers']['Authorization'] -ceq "Bearer $bearerRef" -and $httpState.Entries['http_auto']['headers']['X-Custom'] -ceq 'val # keep') 'Hermes streamable-http adds Bearer ${BearerTokenEnvVar} and preserves # inside URLs and quotes'
+    Assert-McpTest ($httpState.Entries['http_explicit']['headers']['Authorization'] -ceq 'CustomToken') 'Hermes streamable-http does not overwrite explicit Authorization header'
+
+    # Same-indent sequence (- item at same indent as args:) matches
+    Set-TestFile -Path (Join-Path $fHmHttp.Home 'AppData\Local\hermes\config.yaml') -Content "mcp_servers:`n  media:`n    command: `"uvx`"`n    args:`n    - `"media-mcp`"`n    env:`n      MEDIA_TOKEN: `"$tplVar`"`n    enabled: true`n"
+    $sameIndentPlan = Get-McpPlan -RepoRoot $fHmHttp.Repo -HomeRoot $fHmHttp.Home -Platform Hermes -Server @('media')
+    Assert-McpTest ($sameIndentPlan.Items[0].Action -ceq 'unchanged') 'Hermes YAML parser supports block sequence at same indent as parent key'
+
+    Write-Host 'mcp-sync: Hermes EnabledPolicy preserve-disabled (enabled:false & disabled:true) vs enforce'
+    $hmEpPreservePsd1 = "@{ SchemaVersion = 1; Servers = @(@{ Name = 'srv'; Transport = 'stdio'; Command = 'uvx'; Args = @('pkg'); Env = @{ PORT = '9800' }; Enabled = `$true; EnabledPolicy = 'preserve-disabled'; Platforms = @('Hermes') }) }"
+    $hmEpEnforcePsd1 = "@{ SchemaVersion = 1; Servers = @(@{ Name = 'srv'; Transport = 'stdio'; Command = 'uvx'; Args = @('pkg'); Env = @{ PORT = '9800' }; Enabled = `$true; EnabledPolicy = 'enforce'; Platforms = @('Hermes') }) }"
+
+    $fHmEpPres = New-McpFixture -Name 'hm-ep-preserve' -ServersPsd1Content $hmEpPreservePsd1
+    [IO.Directory]::CreateDirectory((Join-Path $fHmEpPres.Home 'AppData\Local\hermes')) | Out-Null
+    Set-TestFile -Path (Join-Path $fHmEpPres.Home 'AppData\Local\hermes\config.yaml') -Content "mcp_servers:`n  srv:`n    command: `"uvx`"`n    args: [`"pkg`"]`n    env:`n      PORT: `"9800`"`n    enabled: false`n"
+    $hmPresFalse = Get-McpPlan -RepoRoot $fHmEpPres.Repo -HomeRoot $fHmEpPres.Home -Platform Hermes
+    Assert-McpTest ($hmPresFalse.Items[0].Action -ceq 'unchanged' -and $hmPresFalse.Items[0].Reason -ceq 'managed-entry-match-local-disabled' -and $hmPresFalse.Items[0].Changes.Count -eq 0) 'Hermes preserve-disabled matches local enabled: false as unchanged'
+
+    Set-TestFile -Path (Join-Path $fHmEpPres.Home 'AppData\Local\hermes\config.yaml') -Content "mcp_servers:`n  srv:`n    command: `"uvx`"`n    args: [`"pkg`"]`n    env:`n      PORT: `"9800`"`n    disabled: true`n"
+    $hmPresLegacy = Get-McpPlan -RepoRoot $fHmEpPres.Repo -HomeRoot $fHmEpPres.Home -Platform Hermes
+    Assert-McpTest ($hmPresLegacy.Items[0].Action -ceq 'unchanged' -and $hmPresLegacy.Items[0].Reason -ceq 'managed-entry-match-local-disabled') 'Hermes preserve-disabled matches legacy disabled: true as unchanged'
+
+    Set-TestFile -Path (Join-Path $fHmEpPres.Home 'AppData\Local\hermes\config.yaml') -Content "mcp_servers:`n  srv:`n    command: `"uvx`"`n    args: [`"old-pkg`"]`n    env:`n      PORT: `"9800`"`n    disabled: true`n"
+    $hmPresDrift = Get-McpPlan -RepoRoot $fHmEpPres.Repo -HomeRoot $fHmEpPres.Home -Platform Hermes
+    Assert-McpTest ($hmPresDrift.Items[0].Action -ceq 'update' -and ($hmPresDrift.Items[0].Changes -contains '~ /args') -and ($hmPresDrift.Items[0].Changes -notcontains '~ /enabled')) 'Hermes preserve-disabled detects args drift even when locally disabled'
+    $hmPresDriftApply = Invoke-McpDeploy -RepoRoot $fHmEpPres.Repo -HomeRoot $fHmEpPres.Home -Platform Hermes -BackupRoot $fHmEpPres.Backup -DoApply
+    $hmPresAfterText = [IO.File]::ReadAllText((Join-Path $fHmEpPres.Home 'AppData\Local\hermes\config.yaml'))
+    Assert-McpTest ($hmPresDriftApply.Summary.unchanged -eq 1 -and $hmPresDriftApply.Items[0].Reason -ceq 'managed-entry-match-local-disabled' -and $hmPresAfterText.Contains('enabled: false') -and (-not $hmPresAfterText.Contains('disabled:'))) 'Hermes preserve-disabled args update preserves enabled: false and drops legacy disabled'
+
+    $fHmEpEnf = New-McpFixture -Name 'hm-ep-enforce' -ServersPsd1Content $hmEpEnforcePsd1
+    [IO.Directory]::CreateDirectory((Join-Path $fHmEpEnf.Home 'AppData\Local\hermes')) | Out-Null
+    Set-TestFile -Path (Join-Path $fHmEpEnf.Home 'AppData\Local\hermes\config.yaml') -Content "mcp_servers:`n  srv:`n    command: `"uvx`"`n    args: [`"pkg`"]`n    env:`n      PORT: `"9800`"`n    disabled: true`n"
+    $hmEnfPlan = Get-McpPlan -RepoRoot $fHmEpEnf.Repo -HomeRoot $fHmEpEnf.Home -Platform Hermes
+    Assert-McpTest ($hmEnfPlan.Items[0].Action -ceq 'update' -and ($hmEnfPlan.Items[0].Changes -contains '~ /enabled')) 'Hermes enforce detects legacy disabled: true as update (~ /enabled)'
+    $hmEnfApply = Invoke-McpDeploy -RepoRoot $fHmEpEnf.Repo -HomeRoot $fHmEpEnf.Home -Platform Hermes -BackupRoot $fHmEpEnf.Backup -DoApply
+    $hmEnfAfterText = [IO.File]::ReadAllText((Join-Path $fHmEpEnf.Home 'AppData\Local\hermes\config.yaml'))
+    Assert-McpTest ($hmEnfApply.Summary.unchanged -eq 1 -and $hmEnfApply.Items[0].Reason -ceq 'managed-entry-match' -and $hmEnfAfterText.Contains('enabled: true') -and (-not $hmEnfAfterText.Contains('disabled:'))) 'Hermes enforce Apply enables server and drops legacy disabled'
+
+    Write-Host 'mcp-sync: Hermes fail-closed guards (env overrides, active_profile, reparse, invalid YAML, duplicate keys)'
+    $fHmGuard = New-McpFixture -Name 'hm-guards'
+    $hmGuardDir = Join-Path $fHmGuard.Home 'AppData\Local\hermes'
+    [IO.Directory]::CreateDirectory($hmGuardDir) | Out-Null
+    $savedHermesHome = $env:HERMES_HOME
+    $savedHermesSuffix = $env:HERMES_DATA_DIR_SUFFIX
+    try {
+        $env:HERMES_HOME = Join-Path $fHmGuard.Root 'custom-hermes'
+        $gHomePlan = Get-McpPlan -RepoRoot $fHmGuard.Repo -HomeRoot $fHmGuard.Home -Platform Hermes
+        Assert-McpTest ($gHomePlan.Summary.blocked -eq 1 -and $gHomePlan.Items[0].Reason -ceq 'hermes-home-override-unsupported') 'blocks non-default HERMES_HOME override'
+        $env:HERMES_HOME = $null
+
+        $env:HERMES_DATA_DIR_SUFFIX = 'dev'
+        $gSufPlan = Get-McpPlan -RepoRoot $fHmGuard.Repo -HomeRoot $fHmGuard.Home -Platform Hermes
+        Assert-McpTest ($gSufPlan.Summary.blocked -eq 1 -and $gSufPlan.Items[0].Reason -ceq 'hermes-home-override-unsupported') 'blocks non-empty HERMES_DATA_DIR_SUFFIX'
+        $env:HERMES_DATA_DIR_SUFFIX = $null
+    }
+    finally {
+        $env:HERMES_HOME = $savedHermesHome
+        $env:HERMES_DATA_DIR_SUFFIX = $savedHermesSuffix
+    }
+
+    Set-TestFile -Path (Join-Path $hmGuardDir 'active_profile') -Content "work`n"
+    $gProfPlan = Get-McpPlan -RepoRoot $fHmGuard.Repo -HomeRoot $fHmGuard.Home -Platform Hermes
+    Assert-McpTest ($gProfPlan.Summary.blocked -eq 1 -and $gProfPlan.Items[0].Reason -ceq 'hermes-non-default-profile-unsupported') 'blocks non-default active_profile'
+    Remove-Item -LiteralPath (Join-Path $hmGuardDir 'active_profile') -Force
+
+    [IO.Directory]::CreateDirectory((Join-Path $hmGuardDir 'active_profile')) | Out-Null
+    $gProfDirPlan = Get-McpPlan -RepoRoot $fHmGuard.Repo -HomeRoot $fHmGuard.Home -Platform Hermes
+    Assert-McpTest ($gProfDirPlan.Summary.blocked -eq 1 -and $gProfDirPlan.Items[0].Reason -ceq 'hermes-active-profile-invalid') 'blocks directory-shaped active_profile'
+    Remove-Item -LiteralPath (Join-Path $hmGuardDir 'active_profile') -Force
+
+    Set-TestFile -Path (Join-Path $hmGuardDir 'active_profile') -Content "default`n"
+    $gProfDefaultPlan = Get-McpPlan -RepoRoot $fHmGuard.Repo -HomeRoot $fHmGuard.Home -Platform Hermes
+    Assert-McpTest ($gProfDefaultPlan.Summary.add -eq 1 -and $gProfDefaultPlan.Summary.blocked -eq 0) 'allows explicit default active_profile'
+    Remove-Item -LiteralPath (Join-Path $hmGuardDir 'active_profile') -Force
+
+    $invalidYamlCases = @(
+        @{ Name = 'dup-top-mcp'; Content = "mcp_servers: {}`nmcp_servers:`n  blender:`n    command: uvx`n" },
+        @{ Name = 'dup-server'; Content = "mcp_servers:`n  blender:`n    command: uvx`n  blender:`n    command: uvx`n" },
+        @{ Name = 'dup-prop-key'; Content = "mcp_servers:`n  blender:`n    command: uvx`n    command: node`n" },
+        @{ Name = 'dup-env-key'; Content = "mcp_servers:`n  blender:`n    command: uvx`n    env:`n      A: `"1`"`n      A: `"2`"`n" },
+        @{ Name = 'tab-indent'; Content = "mcp_servers:`n`tblender:`n    command: uvx`n" },
+        @{ Name = 'non-map-list'; Content = "mcp_servers: []`n" },
+        @{ Name = 'non-map-scalar'; Content = "mcp_servers: `"bad`"`n" },
+        @{ Name = 'non-map-seq'; Content = "mcp_servers:`n  - blender`n" }
+    )
+    foreach ($case in $invalidYamlCases) {
+        Set-TestFile -Path (Join-Path $hmGuardDir 'config.yaml') -Content $case.Content
+        $badYamlPlan = Get-McpPlan -RepoRoot $fHmGuard.Repo -HomeRoot $fHmGuard.Home -Platform Hermes
+        Assert-McpTest ($badYamlPlan.Summary.blocked -eq 1 -and $badYamlPlan.Items[0].Reason -ceq 'invalid-yaml-or-duplicate-key') "rejects invalid Hermes YAML ($($case.Name))"
+    }
+    Assert-McpThrows { Invoke-McpDeploy -RepoRoot $fHmGuard.Repo -HomeRoot $fHmGuard.Home -Platform Hermes -BackupRoot $fHmGuard.Backup -DoApply } 'MCP deployment blocked' 'Hermes Apply refuses when config.yaml is blocked'
+
+    $fHmJunc = New-McpFixture -Name 'hm-reparse'
+    [IO.Directory]::CreateDirectory((Join-Path $fHmJunc.Home 'AppData\Local')) | Out-Null
+    New-Item -ItemType Junction -Path (Join-Path $fHmJunc.Home 'AppData\Local\hermes') -Target $juncTarget | Out-Null
+    $hmJuncPlan = Get-McpPlan -RepoRoot $fHmJunc.Repo -HomeRoot $fHmJunc.Home -Platform Hermes
+    Assert-McpTest ($hmJuncPlan.Summary.blocked -eq 1 -and $hmJuncPlan.Items[0].Reason -ceq 'reparse-point-blocked') 'Hermes blocks when AppData/Local/hermes is a junction'
+
+    $fHmFileDir = New-McpFixture -Name 'hm-file-dir'
+    Set-TestFile -Path (Join-Path $fHmFileDir.Home 'AppData\Local\hermes') -Content 'not a directory'
+    $hmFileDirPlan = Get-McpPlan -RepoRoot $fHmFileDir.Repo -HomeRoot $fHmFileDir.Home -Platform Hermes
+    Assert-McpTest ($hmFileDirPlan.Summary.blocked -eq 1 -and $hmFileDirPlan.Items[0].Reason -ceq 'hermes-dir-not-directory') 'Hermes blocks when AppData/Local/hermes is a file'
+
+    $fHmDirCfg = New-McpFixture -Name 'hm-dir-cfg'
+    [IO.Directory]::CreateDirectory((Join-Path $fHmDirCfg.Home 'AppData\Local\hermes\config.yaml')) | Out-Null
+    $hmDirCfgPlan = Get-McpPlan -RepoRoot $fHmDirCfg.Repo -HomeRoot $fHmDirCfg.Home -Platform Hermes
+    Assert-McpTest ($hmDirCfgPlan.Summary.blocked -eq 1 -and $hmDirCfgPlan.Items[0].Reason -ceq 'target-is-directory') 'Hermes blocks when config.yaml is a directory'
+
+    Write-Host 'mcp-sync: Hermes backup + rollback on write error and JSON redaction'
+    $fHmRollback = New-McpFixture -Name 'hm-rollback'
+    $hmRbCfg = Join-Path $fHmRollback.Home 'AppData\Local\hermes\config.yaml'
+    $originalRb = "model: `"gpt-5`"`nmcp_servers:`n  blender:`n    command: `"uvx`"`n    args: [`"old`"]`n"
+    Set-TestFile -Path $hmRbCfg -Content $originalRb
+    $savedYamlWriter = ${function:Set-McpHermesYamlEntries}
+    try {
+        function Set-McpHermesYamlEntries {
+            param([string] $HomeRoot, [string] $Path, [object[]] $PlatformItems)
+            [IO.File]::WriteAllText($Path, "CORRUPTED_PARTIAL", [Text.UTF8Encoding]::new($false))
+            throw 'simulated Hermes YAML write error'
+        }
+        Assert-McpThrows { Invoke-McpDeploy -RepoRoot $fHmRollback.Repo -HomeRoot $fHmRollback.Home -Platform Hermes -BackupRoot $fHmRollback.Backup -DoApply } 'simulated Hermes YAML write error' 'Hermes write error throws and triggers rollback'
+    }
+    finally {
+        Set-Item -Path 'function:Set-McpHermesYamlEntries' -Value $savedYamlWriter
+    }
+    Assert-McpTest (([IO.File]::ReadAllText($hmRbCfg)) -ceq $originalRb) 'Hermes rollback restores exact original config.yaml content'
+    $rbBaks = @(Get-ChildItem -LiteralPath $fHmRollback.Backup -Recurse -File -Filter 'config.yaml')
+    Assert-McpTest ($rbBaks.Count -eq 1 -and ([IO.File]::ReadAllText($rbBaks[0].FullName)) -ceq $originalRb) 'Hermes pre-Apply backup preserved on rollback'
+
+    # Hermes JSON redaction in subprocess Status and Deploy -Apply -Json
+    $hmRedactPsd1 = @'
+@{ SchemaVersion = 1; Servers = @(
+    @{ Name = 'local'; Platforms = @('Hermes'); Enabled = $true; Transport = 'stdio'; Command = 'fixture'; Env = @{ MODE = 'declared-hm-env' } }
+    @{ Name = 'remote'; Platforms = @('Hermes'); Enabled = $true; Transport = 'streamable-http'; Url = 'https://example.invalid/mcp'; Headers = @{ 'X-Fixture' = 'declared-hm-hdr' } }
+) }
+'@
+    $fHmRedact = New-McpFixture -Name 'hm-redact' -ServersPsd1Content $hmRedactPsd1
+    Set-TestFile -Path (Join-Path $fHmRedact.Repo 'scripts/scan-secrets.ps1') -Content "param([string] `$RepoRoot)`nWrite-Output 'Secret scan: PASS (fixture banner)'`nexit 0`n"
+    Set-TestFile -Path (Join-Path $fHmRedact.Home 'AppData\Local\hermes\config.yaml') -Content "mcp_servers:`n  local:`n    command: `"fixture`"`n    args: []`n    env:`n      MODE: `"live-hm-env`"`n  remote:`n    url: `"https://example.invalid/mcp`"`n    headers:`n      X-Fixture: `"live-hm-hdr`"`n"
+    $hmRedactOut = Join-Path $fHmRedact.Root 'hm-redact-status.json'
+    $hmSubStatus = Invoke-TestProcess -ScriptPath (Join-Path $suiteRepo 'scripts/mcp-sync.ps1') -Arguments @('-Action', 'Status', '-RepoRoot', $fHmRedact.Repo, '-HomeRoot', $fHmRedact.Home, '-Platform', 'Hermes', '-Json', '-JsonPath', $hmRedactOut)
+    Assert-McpTest ($hmSubStatus.Code -eq 0 -and $hmSubStatus.Out -notmatch 'live-hm-env|live-hm-hdr|declared-hm-env|declared-hm-hdr') 'Hermes Status -Json redacts both live and declared env/header values'
+    $hmSubJson = $hmSubStatus.Out | ConvertFrom-Json
+    $hmLocalItem = @($hmSubJson.Items | Where-Object { $_.Server -ceq 'local' })[0]
+    $hmRemoteItem = @($hmSubJson.Items | Where-Object { $_.Server -ceq 'remote' })[0]
+    Assert-McpTest (($hmLocalItem.Changes -contains '~ /env/MODE') -and ($hmRemoteItem.Changes -contains '~ /headers/X-Fixture') -and (-not $hmLocalItem.PSObject.Properties['Before'])) 'Hermes Status -Json reports field paths without Before or secret values'
+    $hmSubApply = Invoke-TestProcess -ScriptPath (Join-Path $suiteRepo 'scripts/mcp-sync.ps1') -Arguments @('-Action', 'Deploy', '-Apply', '-RepoRoot', $fHmRedact.Repo, '-HomeRoot', $fHmRedact.Home, '-Platform', 'Hermes', '-BackupRoot', $fHmRedact.Backup, '-Json')
+    $hmApplyJson = $hmSubApply.Out | ConvertFrom-Json
+    Assert-McpTest ($hmSubApply.Code -eq 0 -and $hmApplyJson.Summary.unchanged -eq 2 -and $hmSubApply.Out -notmatch 'live-hm-env|live-hm-hdr|declared-hm-env|declared-hm-hdr|Secret scan: PASS') 'Hermes Deploy -Apply -Json converges and suppresses secret/scan values'
 
     Write-Host "mcp-sync tests: PASS ($script:McpTestAssertions assertions)"
 }

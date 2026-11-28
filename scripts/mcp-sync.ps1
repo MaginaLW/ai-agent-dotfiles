@@ -2,7 +2,7 @@
 <#
 .SYNOPSIS
     Inspects and projects managed MCP server definitions from harness-source/mcp/servers.psd1
-    to Antigravity and Codex.
+    to Antigravity, Codex, and Hermes.
 
 .DESCRIPTION
     Status and Deploy -DryRun are read-only and never create or modify live home files.
@@ -12,6 +12,7 @@
 
     Antigravity writes per-entry into ~/.gemini/config/mcp_config.json (mcpServers.<name>).
     Codex projects per-entry exclusively via the official `codex mcp` CLI.
+    Hermes surgically updates per-entry in %LOCALAPPDATA%/hermes/config.yaml (mcp_servers.<name>).
 #>
 [CmdletBinding()]
 param(
@@ -19,7 +20,7 @@ param(
     [string] $Action = 'Status',
     [string] $RepoRoot = (Split-Path -Parent $PSScriptRoot),
     [string] $HomeRoot = [Environment]::GetFolderPath('UserProfile'),
-    [string[]] $Platform = @('Antigravity', 'Codex'),
+    [string[]] $Platform = @('Antigravity', 'Codex', 'Hermes'),
     [string[]] $Server = @(),
     [string] $BackupRoot = (Join-Path ([Environment]::GetFolderPath('UserProfile')) '.ai-agent-dotfiles-backups'),
     [string] $JsonPath,
@@ -56,6 +57,7 @@ function Resolve-McpPlatforms {
     $canonical = @{
         antigravity = 'Antigravity'
         codex       = 'Codex'
+        hermes      = 'Hermes'
     }
     $selected = [System.Collections.Generic.List[string]]::new()
     $seen = [System.Collections.Generic.HashSet[string]]::new([StringComparer]::Ordinal)
@@ -65,7 +67,7 @@ function Resolve-McpPlatforms {
             if ([string]::IsNullOrEmpty($trimmed)) { continue }
             $key = $trimmed.ToLowerInvariant()
             if (-not $canonical.ContainsKey($key)) {
-                throw "Unsupported MCP platform '$trimmed'. Expected Antigravity or Codex."
+                throw "Unsupported MCP platform '$trimmed'. Expected Antigravity, Codex, or Hermes."
             }
             $name = $canonical[$key]
             if ($seen.Add($name)) { $selected.Add($name) }
@@ -120,7 +122,7 @@ function Read-McpServerRegistry {
         throw 'MCP registry Servers must be an array.'
     }
     $allowedServerKeys = @('Name', 'Transport', 'Enabled', 'EnabledPolicy', 'Platforms', 'Command', 'Args', 'Env', 'Url', 'BearerTokenEnvVar', 'Headers')
-    $validPlatforms = @('Antigravity', 'Codex')
+    $validPlatforms = @('Antigravity', 'Codex', 'Hermes')
     $seenNames = [System.Collections.Generic.HashSet[string]]::new([StringComparer]::Ordinal)
     $servers = [System.Collections.Generic.List[object]]::new()
 
@@ -690,11 +692,1411 @@ function Get-McpCodexInventory {
     }
 }
 
+function Split-McpYamlLines {
+    param([AllowEmptyString()] [string] $RawText)
+    $lines = [System.Collections.Generic.List[object]]::new()
+    if ([string]::IsNullOrEmpty($RawText)) {
+        return $lines.ToArray()
+    }
+    $i = 0
+    $len = $RawText.Length
+    while ($i -lt $len) {
+        $start = $i
+        while ($i -lt $len -and $RawText[$i] -ne [char]"`r" -and $RawText[$i] -ne [char]"`n") {
+            $i++
+        }
+        $content = $RawText.Substring($start, $i - $start)
+        $eol = ''
+        if ($i -lt $len) {
+            if ($RawText[$i] -eq [char]"`r" -and ($i + 1) -lt $len -and $RawText[$i + 1] -eq [char]"`n") {
+                $eol = "`r`n"
+                $i += 2
+            }
+            else {
+                $eol = [string]$RawText[$i]
+                $i += 1
+            }
+        }
+        $lines.Add([pscustomobject]@{
+            Index   = $lines.Count
+            Content = $content
+            Eol     = $eol
+        })
+    }
+    return $lines.ToArray()
+}
+
+function Get-McpYamlLineIndent {
+    param([AllowEmptyString()] [string] $Line)
+    $count = 0
+    while ($count -lt $Line.Length) {
+        $ch = $Line[$count]
+        if ($ch -eq [char]' ') {
+            $count++
+            continue
+        }
+        if ($ch -eq [char]"`t") {
+            throw 'Tab indentation is not allowed in YAML.'
+        }
+        break
+    }
+    return $count
+}
+
+function Split-McpYamlComment {
+    param([AllowEmptyString()] [string] $Text)
+    $inSingle = $false
+    $inDouble = $false
+    $len = $Text.Length
+    for ($i = 0; $i -lt $len; $i++) {
+        $ch = $Text[$i]
+        if ($inSingle) {
+            if ($ch -eq [char]"'") {
+                if (($i + 1) -lt $len -and $Text[$i + 1] -eq [char]"'") {
+                    $i++
+                }
+                else {
+                    $inSingle = $false
+                }
+            }
+            continue
+        }
+        if ($inDouble) {
+            if ($ch -eq [char]'\') {
+                $i++
+            }
+            elseif ($ch -eq [char]'"') {
+                $inDouble = $false
+            }
+            continue
+        }
+        if ($ch -eq [char]"'") {
+            $inSingle = $true
+        }
+        elseif ($ch -eq [char]'"') {
+            $inDouble = $true
+        }
+        elseif ($ch -eq [char]'#' -and ($i -eq 0 -or $Text[$i - 1] -eq [char]' ' -or $Text[$i - 1] -eq [char]"`t")) {
+            return [pscustomobject]@{
+                Code          = $Text.Substring(0, $i)
+                Comment       = $Text.Substring($i)
+                UnclosedQuote = $false
+            }
+        }
+    }
+    return [pscustomobject]@{
+        Code          = $Text
+        Comment       = ''
+        UnclosedQuote = ($inSingle -or $inDouble)
+    }
+}
+
+function ConvertFrom-McpYamlScalar {
+    param([AllowEmptyString()] [string] $Raw)
+    $trimmed = $Raw.Trim()
+    if ($trimmed.Length -eq 0) {
+        return $null
+    }
+    if ($trimmed.StartsWith('"')) {
+        if ($trimmed.Length -lt 2) {
+            throw 'Unterminated YAML double-quoted scalar.'
+        }
+        $sb = [System.Text.StringBuilder]::new()
+        $closed = $false
+        $i = 1
+        while ($i -lt $trimmed.Length) {
+            $ch = $trimmed[$i]
+            if ($ch -eq [char]'"') {
+                $closed = $true
+                $i++
+                break
+            }
+            if ($ch -eq [char]'\') {
+                $i++
+                if ($i -ge $trimmed.Length) {
+                    throw 'Trailing backslash in YAML double-quoted scalar.'
+                }
+                $esc = $trimmed[$i]
+                switch ($esc) {
+                    '"'  { [void]$sb.Append('"') }
+                    '\'  { [void]$sb.Append('\') }
+                    '/'  { [void]$sb.Append('/') }
+                    'n'  { [void]$sb.Append("`n") }
+                    'r'  { [void]$sb.Append("`r") }
+                    't'  { [void]$sb.Append("`t") }
+                    '0'  { [void]$sb.Append([char]0) }
+                    'a'  { [void]$sb.Append([char]7) }
+                    'b'  { [void]$sb.Append([char]8) }
+                    'e'  { [void]$sb.Append([char]27) }
+                    'f'  { [void]$sb.Append([char]12) }
+                    'v'  { [void]$sb.Append([char]11) }
+                    ' '  { [void]$sb.Append(' ') }
+                    'x' {
+                        if ($i + 2 -ge $trimmed.Length) { throw 'Invalid \x escape in YAML scalar.' }
+                        $hex = $trimmed.Substring($i + 1, 2)
+                        [void]$sb.Append([char][Convert]::ToInt32($hex, 16))
+                        $i += 2
+                    }
+                    'u' {
+                        if ($i + 4 -ge $trimmed.Length) { throw 'Invalid \u escape in YAML scalar.' }
+                        $hex = $trimmed.Substring($i + 1, 4)
+                        [void]$sb.Append([char][Convert]::ToInt32($hex, 16))
+                        $i += 4
+                    }
+                    'U' {
+                        if ($i + 8 -ge $trimmed.Length) { throw 'Invalid \U escape in YAML scalar.' }
+                        $hex = $trimmed.Substring($i + 1, 8)
+                        [void]$sb.Append([char]::ConvertFromUtf32([Convert]::ToInt32($hex, 16)))
+                        $i += 8
+                    }
+                    default { throw "Unsupported YAML escape '\$esc'." }
+                }
+                $i++
+                continue
+            }
+            [void]$sb.Append($ch)
+            $i++
+        }
+        if (-not $closed -or $i -ne $trimmed.Length) {
+            throw 'Invalid YAML double-quoted scalar.'
+        }
+        return $sb.ToString()
+    }
+    if ($trimmed.StartsWith("'")) {
+        if ($trimmed.Length -lt 2) {
+            throw 'Unterminated YAML single-quoted scalar.'
+        }
+        $sb = [System.Text.StringBuilder]::new()
+        $closed = $false
+        $i = 1
+        while ($i -lt $trimmed.Length) {
+            $ch = $trimmed[$i]
+            if ($ch -eq [char]"'") {
+                if (($i + 1) -lt $trimmed.Length -and $trimmed[$i + 1] -eq [char]"'") {
+                    [void]$sb.Append("'")
+                    $i += 2
+                    continue
+                }
+                $closed = $true
+                $i++
+                break
+            }
+            [void]$sb.Append($ch)
+            $i++
+        }
+        if (-not $closed -or $i -ne $trimmed.Length) {
+            throw 'Invalid YAML single-quoted scalar.'
+        }
+        return $sb.ToString()
+    }
+    if ($trimmed -ceq '~' -or $trimmed -cmatch '^(?:null|Null|NULL)$') {
+        return $null
+    }
+    if ($trimmed -cmatch '^(?:true|True|TRUE|yes|Yes|YES|on|On|ON)$') {
+        return $true
+    }
+    if ($trimmed -cmatch '^(?:false|False|FALSE|no|No|NO|off|Off|OFF)$') {
+        return $false
+    }
+    if ($trimmed -cmatch '^-?[0-9]+$') {
+        $longVal = [long]0
+        if ([long]::TryParse($trimmed, [ref]$longVal)) {
+            return $longVal
+        }
+    }
+    if ($trimmed -cmatch '^-?[0-9]+\.[0-9]+$') {
+        $dblVal = [double]0
+        if ([double]::TryParse($trimmed, [Globalization.NumberStyles]::Float, [Globalization.CultureInfo]::InvariantCulture, [ref]$dblVal)) {
+            return $dblVal
+        }
+    }
+    return [string]$trimmed
+}
+
+function Find-McpYamlKeyValueSplit {
+    param([Parameter(Mandatory)] [string] $Text)
+    $inSingle = $false
+    $inDouble = $false
+    $justClosedQuote = $false
+    $len = $Text.Length
+    for ($i = 0; $i -lt $len; $i++) {
+        $ch = $Text[$i]
+        if ($inSingle) {
+            if ($ch -eq [char]"'") {
+                if (($i + 1) -lt $len -and $Text[$i + 1] -eq [char]"'") {
+                    $i++
+                }
+                else {
+                    $inSingle = $false
+                    $justClosedQuote = $true
+                }
+            }
+            continue
+        }
+        if ($inDouble) {
+            if ($ch -eq [char]'\') {
+                $i++
+            }
+            elseif ($ch -eq [char]'"') {
+                $inDouble = $false
+                $justClosedQuote = $true
+            }
+            continue
+        }
+        if ($ch -eq [char]"'") {
+            $inSingle = $true
+            $justClosedQuote = $false
+            continue
+        }
+        if ($ch -eq [char]'"') {
+            $inDouble = $true
+            $justClosedQuote = $false
+            continue
+        }
+        if ($ch -eq [char]':') {
+            $atEnd = ($i + 1 -eq $len)
+            $nextWs = (-not $atEnd) -and ($Text[$i + 1] -eq [char]' ' -or $Text[$i + 1] -eq [char]"`t")
+            if ($atEnd -or $nextWs -or $justClosedQuote) {
+                $keyRaw = $Text.Substring(0, $i).Trim()
+                if ([string]::IsNullOrEmpty($keyRaw)) {
+                    throw 'Empty YAML mapping key.'
+                }
+                if ((-not $keyRaw.StartsWith('"')) -and (-not $keyRaw.StartsWith("'")) -and $keyRaw -match '[\[\]\{\},]') {
+                    throw 'Invalid characters in unquoted YAML key.'
+                }
+                $key = [string](ConvertFrom-McpYamlScalar -Raw $keyRaw)
+                if ([string]::IsNullOrEmpty($key)) {
+                    throw 'YAML mapping key cannot be null or empty.'
+                }
+                return [pscustomobject]@{
+                    Found    = $true
+                    Key      = $key
+                    ValueRaw = $Text.Substring($i + 1)
+                }
+            }
+        }
+        if ($ch -ne [char]' ' -and $ch -ne [char]"`t") {
+            $justClosedQuote = $false
+        }
+    }
+    return [pscustomobject]@{
+        Found    = $false
+        Key      = $null
+        ValueRaw = $null
+    }
+}
+
+function Read-McpYamlFlowText {
+    param(
+        [Parameter(Mandatory)] [object[]] $Lines,
+        [Parameter(Mandatory)] [int] $StartLineIndex,
+        [Parameter(Mandatory)] [string] $InitialText
+    )
+    $sb = [System.Text.StringBuilder]::new()
+    $inSingle = $false
+    $inDouble = $false
+    $depth = 0
+    $lineIdx = $StartLineIndex
+    $fragment = $InitialText.TrimStart()
+    $openChar = $fragment[0]
+    $closeChar = if ($openChar -eq [char]'[') { [char]']' } else { [char]'}' }
+
+    while ($true) {
+        if ($lineIdx -gt $StartLineIndex) {
+            $null = Get-McpYamlLineIndent -Line $Lines[$lineIdx].Content
+            $fragment = $Lines[$lineIdx].Content
+        }
+        $len = $fragment.Length
+        for ($i = 0; $i -lt $len; $i++) {
+            $ch = $fragment[$i]
+            if ($inSingle) {
+                [void]$sb.Append($ch)
+                if ($ch -eq [char]"'") {
+                    if (($i + 1) -lt $len -and $fragment[$i + 1] -eq [char]"'") {
+                        [void]$sb.Append("'")
+                        $i++
+                    }
+                    else {
+                        $inSingle = $false
+                    }
+                }
+                continue
+            }
+            if ($inDouble) {
+                [void]$sb.Append($ch)
+                if ($ch -eq [char]'\') {
+                    if (($i + 1) -lt $len) {
+                        $i++
+                        [void]$sb.Append($fragment[$i])
+                    }
+                }
+                elseif ($ch -eq [char]'"') {
+                    $inDouble = $false
+                }
+                continue
+            }
+            if ($ch -eq [char]"'") {
+                $inSingle = $true
+                [void]$sb.Append($ch)
+                continue
+            }
+            if ($ch -eq [char]'"') {
+                $inDouble = $true
+                [void]$sb.Append($ch)
+                continue
+            }
+            if ($ch -eq [char]'#' -and ($i -eq 0 -or $fragment[$i - 1] -eq [char]' ' -or $fragment[$i - 1] -eq [char]"`t")) {
+                break
+            }
+            [void]$sb.Append($ch)
+            if ($ch -eq $openChar) {
+                $depth++
+            }
+            elseif ($ch -eq $closeChar) {
+                $depth--
+                if ($depth -eq 0) {
+                    $tail = $fragment.Substring($i + 1)
+                    $tailSplit = Split-McpYamlComment -Text $tail
+                    if (-not [string]::IsNullOrWhiteSpace($tailSplit.Code)) {
+                        throw 'Unexpected trailing content after YAML flow collection.'
+                    }
+                    return [pscustomobject]@{
+                        FlowText      = $sb.ToString()
+                        LastLineIndex = $lineIdx
+                        NextIndex     = ($lineIdx + 1)
+                    }
+                }
+            }
+        }
+        [void]$sb.Append(' ')
+        $lineIdx++
+        if ($lineIdx -ge $Lines.Count) {
+            throw 'Unterminated YAML flow collection.'
+        }
+    }
+}
+
+function Split-McpYamlFlowItems {
+    param([AllowEmptyString()] [string] $InnerText)
+    $items = [System.Collections.Generic.List[string]]::new()
+    if ([string]::IsNullOrWhiteSpace($InnerText)) {
+        return $items.ToArray()
+    }
+    $inSingle = $false
+    $inDouble = $false
+    $bracketDepth = 0
+    $braceDepth = 0
+    $start = 0
+    $len = $InnerText.Length
+    for ($i = 0; $i -lt $len; $i++) {
+        $ch = $InnerText[$i]
+        if ($inSingle) {
+            if ($ch -eq [char]"'") {
+                if (($i + 1) -lt $len -and $InnerText[$i + 1] -eq [char]"'") {
+                    $i++
+                }
+                else {
+                    $inSingle = $false
+                }
+            }
+            continue
+        }
+        if ($inDouble) {
+            if ($ch -eq [char]'\') {
+                $i++
+            }
+            elseif ($ch -eq [char]'"') {
+                $inDouble = $false
+            }
+            continue
+        }
+        if ($ch -eq [char]"'") { $inSingle = $true; continue }
+        if ($ch -eq [char]'"') { $inDouble = $true; continue }
+        if ($ch -eq [char]'[') { $bracketDepth++; continue }
+        if ($ch -eq [char]']') { $bracketDepth--; continue }
+        if ($ch -eq [char]'{') { $braceDepth++; continue }
+        if ($ch -eq [char]'}') { $braceDepth--; continue }
+        if ($ch -eq [char]',' -and $bracketDepth -eq 0 -and $braceDepth -eq 0) {
+            $token = $InnerText.Substring($start, $i - $start).Trim()
+            if ([string]::IsNullOrEmpty($token)) {
+                throw 'Empty element in YAML flow collection.'
+            }
+            $items.Add($token)
+            $start = $i + 1
+        }
+    }
+    if ($inSingle -or $inDouble -or $bracketDepth -ne 0 -or $braceDepth -ne 0) {
+        throw 'Malformed YAML flow collection.'
+    }
+    $last = $InnerText.Substring($start).Trim()
+    if ([string]::IsNullOrEmpty($last)) {
+        throw 'Trailing comma or empty element in YAML flow collection.'
+    }
+    $items.Add($last)
+    return $items.ToArray()
+}
+
+function ConvertFrom-McpYamlFlowNode {
+    param([Parameter(Mandatory)] [string] $Token)
+    $trimmed = $Token.Trim()
+    if ($trimmed.StartsWith('[')) {
+        return , @(ConvertFrom-McpYamlFlowSequence -Text $trimmed)
+    }
+    if ($trimmed.StartsWith('{')) {
+        return (ConvertFrom-McpYamlFlowMapping -Text $trimmed)
+    }
+    return (ConvertFrom-McpYamlScalar -Raw $trimmed)
+}
+
+function ConvertFrom-McpYamlFlowSequence {
+    param([Parameter(Mandatory)] [string] $Text)
+    $trimmed = $Text.Trim()
+    if (-not ($trimmed.StartsWith('[') -and $trimmed.EndsWith(']'))) {
+        throw 'Invalid YAML flow sequence.'
+    }
+    $inner = $trimmed.Substring(1, $trimmed.Length - 2)
+    $tokens = @(Split-McpYamlFlowItems -InnerText $inner)
+    $result = [System.Collections.Generic.List[object]]::new()
+    foreach ($tok in $tokens) {
+        $result.Add((ConvertFrom-McpYamlFlowNode -Token $tok))
+    }
+    return $result.ToArray()
+}
+
+function ConvertFrom-McpYamlFlowMapping {
+    param([Parameter(Mandatory)] [string] $Text)
+    $trimmed = $Text.Trim()
+    if (-not ($trimmed.StartsWith('{') -and $trimmed.EndsWith('}'))) {
+        throw 'Invalid YAML flow mapping.'
+    }
+    $inner = $trimmed.Substring(1, $trimmed.Length - 2)
+    $tokens = @(Split-McpYamlFlowItems -InnerText $inner)
+    $map = [ordered]@{}
+    foreach ($tok in $tokens) {
+        $kv = Find-McpYamlKeyValueSplit -Text $tok
+        if (-not $kv.Found) {
+            throw 'Expected key: value inside YAML flow mapping.'
+        }
+        if ($map.Contains($kv.Key)) {
+            throw "Duplicate YAML key '$($kv.Key)' in flow mapping."
+        }
+        $valTrimmed = $kv.ValueRaw.Trim()
+        $map[$kv.Key] = if ($valTrimmed -eq '') { $null } else { ConvertFrom-McpYamlFlowNode -Token $valTrimmed }
+    }
+    return $map
+}
+
+function Read-McpYamlBlockScalar {
+    param(
+        [Parameter(Mandatory)] [object[]] $Lines,
+        [Parameter(Mandatory)] [int] $HeaderLineIndex,
+        [Parameter(Mandatory)] [string] $HeaderValue,
+        [Parameter(Mandatory)] [int] $ParentIndent
+    )
+    $trimmed = $HeaderValue.Trim()
+    if ($trimmed -cnotmatch '^(\||>)([+-]?)([1-9]?)([+-]?)$') {
+        throw "Invalid YAML block scalar header '$trimmed'."
+    }
+    $style = $Matches[1]
+    $chomp1 = $Matches[2]
+    $digit = $Matches[3]
+    $chomp2 = $Matches[4]
+    if ($chomp1 -and $chomp2) {
+        throw "Invalid YAML block scalar chomping '$trimmed'."
+    }
+    $chomp = if ($chomp1) { $chomp1 } elseif ($chomp2) { $chomp2 } else { '' }
+    $explicitIndent = if ($digit) { [int]$digit } else { 0 }
+
+    $contentIndent = -1
+    $collected = [System.Collections.Generic.List[string]]::new()
+    $lastContentLine = $HeaderLineIndex
+    $j = $HeaderLineIndex + 1
+
+    while ($j -lt $Lines.Count) {
+        $rawLine = $Lines[$j].Content
+        $spaceCount = 0
+        while ($spaceCount -lt $rawLine.Length -and $rawLine[$spaceCount] -eq [char]' ') {
+            $spaceCount++
+        }
+        $isBlank = ([string]::IsNullOrWhiteSpace($rawLine))
+        if ($isBlank) {
+            if ($rawLine.Contains("`t") -and ($contentIndent -eq -1 -or $spaceCount -lt $contentIndent)) {
+                throw 'Tab indentation is not allowed in YAML.'
+            }
+            $collected.Add('')
+            $j++
+            continue
+        }
+        if ($spaceCount -lt $rawLine.Length -and $rawLine[$spaceCount] -eq [char]"`t") {
+            if ($contentIndent -eq -1 -or $spaceCount -lt $contentIndent) {
+                throw 'Tab indentation is not allowed in YAML.'
+            }
+        }
+        if ($spaceCount -le $ParentIndent) {
+            break
+        }
+        if ($contentIndent -eq -1) {
+            $contentIndent = if ($explicitIndent -gt 0) { $ParentIndent + $explicitIndent } else { $spaceCount }
+            if ($spaceCount -lt $contentIndent) {
+                throw 'Invalid YAML block scalar indentation.'
+            }
+        }
+        elseif ($spaceCount -lt $contentIndent) {
+            throw 'Invalid YAML block scalar indentation.'
+        }
+        $collected.Add($rawLine.Substring($contentIndent))
+        $lastContentLine = $j
+        $j++
+    }
+
+    if ($lastContentLine -eq $HeaderLineIndex) {
+        return [pscustomobject]@{
+            Value         = ''
+            LastLineIndex = $HeaderLineIndex
+            NextIndex     = $j
+        }
+    }
+
+    $nonBlankEnd = $collected.Count - 1
+    while ($nonBlankEnd -ge 0 -and $collected[$nonBlankEnd] -eq '' -and $nonBlankEnd -ge ($lastContentLine - $HeaderLineIndex)) {
+        $nonBlankEnd--
+    }
+    $bodyLines = if ($chomp -eq '+') {
+        @($collected)
+    }
+    else {
+        $endIdx = $lastContentLine - $HeaderLineIndex - 1
+        if ($endIdx -ge 0) { @($collected[0..$endIdx]) } else { @() }
+    }
+    $joined = if ($style -eq '|') {
+        $bodyLines -join "`n"
+    }
+    else {
+        ($bodyLines -join ' ').TrimEnd()
+    }
+    if ($chomp -eq '' -and $joined.Length -gt 0) {
+        $joined += "`n"
+    }
+    return [pscustomobject]@{
+        Value         = $joined
+        LastLineIndex = $lastContentLine
+        NextIndex     = $j
+    }
+}
+
+function Find-McpYamlNextContentLine {
+    param(
+        [Parameter(Mandatory)] [object[]] $Lines,
+        [Parameter(Mandatory)] [int] $StartIndex
+    )
+    $i = $StartIndex
+    while ($i -lt $Lines.Count) {
+        $line = $Lines[$i].Content
+        $indent = Get-McpYamlLineIndent -Line $line
+        if ($indent -ge $line.Length) {
+            $i++
+            continue
+        }
+        if ($line[$indent] -eq [char]'#') {
+            $i++
+            continue
+        }
+        return $i
+    }
+    return $Lines.Count
+}
+
+function Read-McpYamlSequence {
+    param(
+        [Parameter(Mandatory)] [object[]] $Lines,
+        [Parameter(Mandatory)] [int] $StartIndex,
+        [Parameter(Mandatory)] [int] $ExpectedIndent
+    )
+    $items = [System.Collections.Generic.List[object]]::new()
+    $lastLine = $StartIndex - 1
+    $i = $StartIndex
+    while ($i -lt $Lines.Count) {
+        $i = Find-McpYamlNextContentLine -Lines $Lines -StartIndex $i
+        if ($i -ge $Lines.Count) { break }
+        $indent = Get-McpYamlLineIndent -Line $Lines[$i].Content
+        if ($indent -lt $ExpectedIndent) { break }
+        if ($indent -gt $ExpectedIndent) {
+            throw 'Unexpected indentation in YAML sequence.'
+        }
+        $body = $Lines[$i].Content.Substring($indent)
+        if ($body -cnotmatch '^-(?:\s|$)') {
+            break
+        }
+        $afterDash = if ($body.Length -gt 1) { $body.Substring(1) } else { '' }
+        $split = Split-McpYamlComment -Text $afterDash
+        if ($split.UnclosedQuote) {
+            throw 'Unterminated quote in YAML sequence item.'
+        }
+        $valRes = Read-McpYamlValue -Lines $Lines -InlineText $split.Code -LineIndex $i -ParentIndent $ExpectedIndent
+        $items.Add($valRes.Value)
+        $lastLine = $valRes.LastLineIndex
+        $i = $valRes.NextIndex
+    }
+    return [pscustomobject]@{
+        Value         = $items.ToArray()
+        LastLineIndex = $lastLine
+        NextIndex     = $i
+    }
+}
+
+function Read-McpYamlMapping {
+    param(
+        [Parameter(Mandatory)] [object[]] $Lines,
+        [Parameter(Mandatory)] [int] $StartIndex,
+        [Parameter(Mandatory)] [int] $ExpectedIndent
+    )
+    $map = [ordered]@{}
+    $lastLine = $StartIndex - 1
+    $i = $StartIndex
+    while ($i -lt $Lines.Count) {
+        $i = Find-McpYamlNextContentLine -Lines $Lines -StartIndex $i
+        if ($i -ge $Lines.Count) { break }
+        $indent = Get-McpYamlLineIndent -Line $Lines[$i].Content
+        if ($indent -lt $ExpectedIndent) { break }
+        if ($indent -gt $ExpectedIndent) {
+            throw 'Unexpected indentation in YAML mapping.'
+        }
+        $body = $Lines[$i].Content.Substring($indent)
+        if ($body -cmatch '^-(?:\s|$)') {
+            throw 'Unexpected YAML sequence item inside mapping.'
+        }
+        $split = Split-McpYamlComment -Text $body
+        if ($split.UnclosedQuote) {
+            throw 'Unterminated quote in YAML mapping entry.'
+        }
+        $kv = Find-McpYamlKeyValueSplit -Text $split.Code
+        if (-not $kv.Found) {
+            throw 'Expected key: value in YAML mapping.'
+        }
+        if ($map.Contains($kv.Key)) {
+            throw "Duplicate YAML key '$($kv.Key)'."
+        }
+        $valRes = Read-McpYamlValue -Lines $Lines -InlineText $kv.ValueRaw -LineIndex $i -ParentIndent $ExpectedIndent
+        $map[$kv.Key] = $valRes.Value
+        $lastLine = $valRes.LastLineIndex
+        $i = $valRes.NextIndex
+    }
+    return [pscustomobject]@{
+        Value         = $map
+        LastLineIndex = $lastLine
+        NextIndex     = $i
+    }
+}
+
+function Read-McpYamlValue {
+    param(
+        [Parameter(Mandatory)] [object[]] $Lines,
+        [AllowEmptyString()] [string] $InlineText,
+        [Parameter(Mandatory)] [int] $LineIndex,
+        [Parameter(Mandatory)] [int] $ParentIndent
+    )
+    $trimmed = $InlineText.Trim()
+    if ($trimmed -cmatch '^(\||>)') {
+        return (Read-McpYamlBlockScalar -Lines $Lines -HeaderLineIndex $LineIndex -HeaderValue $trimmed -ParentIndent $ParentIndent)
+    }
+    if ($trimmed.StartsWith('[')) {
+        $flowRes = Read-McpYamlFlowText -Lines $Lines -StartLineIndex $LineIndex -InitialText $trimmed
+        return [pscustomobject]@{
+            Value         = @(ConvertFrom-McpYamlFlowSequence -Text $flowRes.FlowText)
+            LastLineIndex = $flowRes.LastLineIndex
+            NextIndex     = $flowRes.NextIndex
+        }
+    }
+    if ($trimmed.StartsWith('{')) {
+        $flowRes = Read-McpYamlFlowText -Lines $Lines -StartLineIndex $LineIndex -InitialText $trimmed
+        return [pscustomobject]@{
+            Value         = (ConvertFrom-McpYamlFlowMapping -Text $flowRes.FlowText)
+            LastLineIndex = $flowRes.LastLineIndex
+            NextIndex     = $flowRes.NextIndex
+        }
+    }
+    if ($trimmed -ne '') {
+        return [pscustomobject]@{
+            Value         = (ConvertFrom-McpYamlScalar -Raw $trimmed)
+            LastLineIndex = $LineIndex
+            NextIndex     = ($LineIndex + 1)
+        }
+    }
+
+    $nextIdx = Find-McpYamlNextContentLine -Lines $Lines -StartIndex ($LineIndex + 1)
+    if ($nextIdx -ge $Lines.Count) {
+        return [pscustomobject]@{ Value = $null; LastLineIndex = $LineIndex; NextIndex = $nextIdx }
+    }
+    $nextIndent = Get-McpYamlLineIndent -Line $Lines[$nextIdx].Content
+    if ($nextIndent -lt $ParentIndent) {
+        return [pscustomobject]@{ Value = $null; LastLineIndex = $LineIndex; NextIndex = $nextIdx }
+    }
+    $nextBody = $Lines[$nextIdx].Content.Substring($nextIndent)
+    if ($nextIndent -eq $ParentIndent) {
+        if ($nextBody -cmatch '^-(?:\s|$)') {
+            return (Read-McpYamlSequence -Lines $Lines -StartIndex $nextIdx -ExpectedIndent $nextIndent)
+        }
+        return [pscustomobject]@{ Value = $null; LastLineIndex = $LineIndex; NextIndex = $nextIdx }
+    }
+    if ($nextBody -cmatch '^-(?:\s|$)') {
+        return (Read-McpYamlSequence -Lines $Lines -StartIndex $nextIdx -ExpectedIndent $nextIndent)
+    }
+    return (Read-McpYamlMapping -Lines $Lines -StartIndex $nextIdx -ExpectedIndent $nextIndent)
+}
+
+function Skip-McpYamlSubtree {
+    param(
+        [Parameter(Mandatory)] [object[]] $Lines,
+        [Parameter(Mandatory)] [int] $StartIndex,
+        [AllowEmptyString()] [string] $InlineText
+    )
+    $trimmed = $InlineText.Trim()
+    if ($trimmed -cmatch '^(\||>)') {
+        $blk = Read-McpYamlBlockScalar -Lines $Lines -HeaderLineIndex ($StartIndex - 1) -HeaderValue $trimmed -ParentIndent 0
+        return $blk.NextIndex
+    }
+    if ($trimmed.StartsWith('[') -or $trimmed.StartsWith('{')) {
+        $flow = Read-McpYamlFlowText -Lines $Lines -StartLineIndex ($StartIndex - 1) -InitialText $trimmed
+        return $flow.NextIndex
+    }
+    $i = $StartIndex
+    while ($i -lt $Lines.Count) {
+        $i = Find-McpYamlNextContentLine -Lines $Lines -StartIndex $i
+        if ($i -ge $Lines.Count) { break }
+        $indent = Get-McpYamlLineIndent -Line $Lines[$i].Content
+        $body = $Lines[$i].Content.Substring($indent)
+        if ($indent -eq 0 -and ($body -cnotmatch '^-(?:\s|$)')) {
+            break
+        }
+        $split = Split-McpYamlComment -Text $body
+        if ($split.UnclosedQuote) {
+            throw 'Unterminated quote in YAML document.'
+        }
+        $kv = Find-McpYamlKeyValueSplit -Text $split.Code
+        if ($kv.Found) {
+            $valTrimmed = $kv.ValueRaw.Trim()
+            if ($valTrimmed -cmatch '^(\||>)') {
+                $blk = Read-McpYamlBlockScalar -Lines $Lines -HeaderLineIndex $i -HeaderValue $valTrimmed -ParentIndent $indent
+                $i = $blk.NextIndex
+                continue
+            }
+            if ($valTrimmed.StartsWith('[') -or $valTrimmed.StartsWith('{')) {
+                $flow = Read-McpYamlFlowText -Lines $Lines -StartLineIndex $i -InitialText $valTrimmed
+                $i = $flow.NextIndex
+                continue
+            }
+        }
+        elseif ($body -cmatch '^-(?:\s|$)') {
+            $afterDash = if ($body.Length -gt 1) { $body.Substring(1).Trim() } else { '' }
+            if ($afterDash -cmatch '^(\||>)') {
+                $blk = Read-McpYamlBlockScalar -Lines $Lines -HeaderLineIndex $i -HeaderValue $afterDash -ParentIndent $indent
+                $i = $blk.NextIndex
+                continue
+            }
+        }
+        $i++
+    }
+    return $i
+}
+
+function Read-McpHermesConfigState {
+    param([Parameter(Mandatory)] [string] $HomeRoot)
+
+    $hermesDir = Join-Path $HomeRoot 'AppData\Local\hermes'
+    $configPath = Join-Path $hermesDir 'config.yaml'
+
+    $newBlockedState = {
+        param([string] $Reason, [bool] $Exists = $false)
+        return [pscustomobject]@{
+            Dir                = $hermesDir
+            Path               = $configPath
+            Exists             = $Exists
+            Installed          = $true
+            Valid              = $false
+            Reason             = $Reason
+            NewLine            = "`n"
+            RawText            = $null
+            Lines              = @()
+            HasMcpServers      = $false
+            McpHeaderLineIndex = -1
+            McpBlockEndIndex   = -1
+            McpEmptyInline     = $false
+            ServerIndent       = 2
+            Entries            = [ordered]@{}
+            EntrySpans         = @{}
+        }
+    }
+
+    if (-not [string]::IsNullOrEmpty($env:HERMES_DATA_DIR_SUFFIX)) {
+        return (& $newBlockedState 'hermes-home-override-unsupported' $false)
+    }
+    if (-not [string]::IsNullOrEmpty($env:HERMES_HOME)) {
+        $normOverride = $null
+        $normDefault = $null
+        try {
+            $normDefault = [IO.Path]::TrimEndingDirectorySeparator([IO.Path]::GetFullPath($hermesDir))
+            $normOverride = [IO.Path]::TrimEndingDirectorySeparator([IO.Path]::GetFullPath($env:HERMES_HOME))
+        }
+        catch {
+            $normOverride = $null
+        }
+        if ($null -eq $normOverride -or ($normOverride -ine $normDefault)) {
+            return (& $newBlockedState 'hermes-home-override-unsupported' $false)
+        }
+    }
+
+    try {
+        Assert-PlainPathNoReparse -Path $configPath -AllowMissing -MessagePrefix 'MCP target path cannot contain reparse points'
+    }
+    catch {
+        return (& $newBlockedState 'reparse-point-blocked' $false)
+    }
+
+    if (Test-Path -LiteralPath $hermesDir -PathType Leaf) {
+        return (& $newBlockedState 'hermes-dir-not-directory' $false)
+    }
+    if (-not (Test-Path -LiteralPath $hermesDir -PathType Container)) {
+        return [pscustomobject]@{
+            Dir                = $hermesDir
+            Path               = $configPath
+            Exists             = $false
+            Installed          = $false
+            Valid              = $true
+            Reason             = 'hermes-not-installed'
+            NewLine            = "`n"
+            RawText            = ''
+            Lines              = @()
+            HasMcpServers      = $false
+            McpHeaderLineIndex = -1
+            McpBlockEndIndex   = -1
+            McpEmptyInline     = $false
+            ServerIndent       = 2
+            Entries            = [ordered]@{}
+            EntrySpans         = @{}
+        }
+    }
+
+    $activeProfilePath = Join-Path $hermesDir 'active_profile'
+    try {
+        Assert-PlainPathNoReparse -Path $activeProfilePath -AllowMissing -MessagePrefix 'MCP target path cannot contain reparse points'
+    }
+    catch {
+        return (& $newBlockedState 'reparse-point-blocked' $false)
+    }
+    if (Test-Path -LiteralPath $activeProfilePath -PathType Container) {
+        return (& $newBlockedState 'hermes-active-profile-invalid' $false)
+    }
+    if (Test-Path -LiteralPath $activeProfilePath -PathType Leaf) {
+        $profileName = ([IO.File]::ReadAllText($activeProfilePath)).Trim()
+        if (-not [string]::IsNullOrEmpty($profileName) -and $profileName -ine 'default') {
+            return (& $newBlockedState 'hermes-non-default-profile-unsupported' $false)
+        }
+    }
+
+    if (Test-Path -LiteralPath $configPath -PathType Container) {
+        return (& $newBlockedState 'target-is-directory' $true)
+    }
+    if (-not (Test-Path -LiteralPath $configPath -PathType Leaf)) {
+        return [pscustomobject]@{
+            Dir                = $hermesDir
+            Path               = $configPath
+            Exists             = $false
+            Installed          = $true
+            Valid              = $true
+            Reason             = $null
+            NewLine            = "`n"
+            RawText            = ''
+            Lines              = @()
+            HasMcpServers      = $false
+            McpHeaderLineIndex = -1
+            McpBlockEndIndex   = -1
+            McpEmptyInline     = $false
+            ServerIndent       = 2
+            Entries            = [ordered]@{}
+            EntrySpans         = @{}
+        }
+    }
+
+    $raw = [IO.File]::ReadAllText($configPath)
+    $newLine = if ($raw.Contains("`r`n")) { "`r`n" } else { "`n" }
+    $lines = @(Split-McpYamlLines -RawText $raw)
+    if ([string]::IsNullOrWhiteSpace($raw)) {
+        return [pscustomobject]@{
+            Dir                = $hermesDir
+            Path               = $configPath
+            Exists             = $true
+            Installed          = $true
+            Valid              = $true
+            Reason             = $null
+            NewLine            = $newLine
+            RawText            = $raw
+            Lines              = $lines
+            HasMcpServers      = $false
+            McpHeaderLineIndex = -1
+            McpBlockEndIndex   = -1
+            McpEmptyInline     = $false
+            ServerIndent       = 2
+            Entries            = [ordered]@{}
+            EntrySpans         = @{}
+        }
+    }
+
+    try {
+        $seenTopContent = $false
+        $hasMcpServers = $false
+        $mcpHeaderLineIndex = -1
+        $mcpBlockEndIndex = -1
+        $mcpEmptyInline = $false
+        $serverIndent = 2
+        $entries = [ordered]@{}
+        $entrySpans = @{}
+        $i = 0
+
+        while ($i -lt $lines.Count) {
+            $i = Find-McpYamlNextContentLine -Lines $lines -StartIndex $i
+            if ($i -ge $lines.Count) { break }
+            $indent = Get-McpYamlLineIndent -Line $lines[$i].Content
+            if ($indent -ne 0) {
+                throw 'Unexpected top-level indentation in YAML.'
+            }
+            $body = $lines[$i].Content
+            $split = Split-McpYamlComment -Text $body
+            if ($split.UnclosedQuote) {
+                throw 'Unterminated quote in YAML.'
+            }
+            $trimmedCode = $split.Code.Trim()
+            if ($trimmedCode -ceq '---') {
+                if ($seenTopContent) {
+                    throw 'Multi-document YAML is not supported.'
+                }
+                $i++
+                continue
+            }
+            if ($trimmedCode -ceq '...') {
+                $afterEnd = Find-McpYamlNextContentLine -Lines $lines -StartIndex ($i + 1)
+                if ($afterEnd -lt $lines.Count) {
+                    throw 'Trailing content after YAML document end marker is not supported.'
+                }
+                break
+            }
+            $seenTopContent = $true
+            if ($trimmedCode -cmatch '^-(?:\s|$)') {
+                throw 'Expected top-level YAML mapping.'
+            }
+            $kv = Find-McpYamlKeyValueSplit -Text $split.Code
+            if (-not $kv.Found) {
+                throw 'Expected top-level key: value in YAML.'
+            }
+
+            if ($kv.Key -ceq 'mcp_servers') {
+                if ($hasMcpServers) {
+                    throw 'Duplicate top-level mcp_servers key.'
+                }
+                $hasMcpServers = $true
+                $mcpHeaderLineIndex = $i
+                $mcpBlockEndIndex = $i
+                $valTrimmed = $kv.ValueRaw.Trim()
+                if ($valTrimmed -cmatch '^(\||>)' -or $valTrimmed.StartsWith('[')) {
+                    throw 'mcp_servers must be a YAML mapping.'
+                }
+                if ($valTrimmed.StartsWith('{')) {
+                    $flowRes = Read-McpYamlFlowText -Lines $lines -StartLineIndex $i -InitialText $valTrimmed
+                    $flowMap = ConvertFrom-McpYamlFlowMapping -Text $flowRes.FlowText
+                    if ($flowMap.Count -gt 0) {
+                        throw 'Non-empty inline flow mapping on top-level mcp_servers is not supported.'
+                    }
+                    $mcpEmptyInline = $true
+                    $i = $flowRes.NextIndex
+                    $nextAfterFlow = Find-McpYamlNextContentLine -Lines $lines -StartIndex $i
+                    if ($nextAfterFlow -lt $lines.Count -and (Get-McpYamlLineIndent -Line $lines[$nextAfterFlow].Content) -gt 0) {
+                        throw 'Unexpected indented children under inline mcp_servers: {}.'
+                    }
+                    continue
+                }
+                if ($valTrimmed -ne '') {
+                    throw 'mcp_servers must be a YAML mapping, not a scalar.'
+                }
+
+                $detectedIndent = -1
+                $j = $i + 1
+                while ($j -lt $lines.Count) {
+                    $j = Find-McpYamlNextContentLine -Lines $lines -StartIndex $j
+                    if ($j -ge $lines.Count) { break }
+                    $srvIndent = Get-McpYamlLineIndent -Line $lines[$j].Content
+                    $srvBody = $lines[$j].Content.Substring($srvIndent)
+                    if ($srvIndent -eq 0) {
+                        if ($srvBody -cmatch '^-(?:\s|$)') {
+                            throw 'mcp_servers must be a YAML mapping, not a sequence.'
+                        }
+                        break
+                    }
+                    if ($detectedIndent -eq -1) {
+                        if ($srvBody -cmatch '^-(?:\s|$)') {
+                            throw 'mcp_servers must be a YAML mapping, not a sequence.'
+                        }
+                        $detectedIndent = $srvIndent
+                        $serverIndent = $srvIndent
+                    }
+                    elseif ($srvIndent -ne $detectedIndent) {
+                        throw 'Inconsistent server indentation under mcp_servers.'
+                    }
+                    if ($srvBody -cmatch '^-(?:\s|$)') {
+                        throw 'Unexpected sequence item under mcp_servers.'
+                    }
+                    $srvSplit = Split-McpYamlComment -Text $srvBody
+                    if ($srvSplit.UnclosedQuote) {
+                        throw 'Unterminated quote in mcp_servers entry.'
+                    }
+                    $srvKv = Find-McpYamlKeyValueSplit -Text $srvSplit.Code
+                    if (-not $srvKv.Found) {
+                        throw 'Expected server_name: mapping under mcp_servers.'
+                    }
+                    $srvName = $srvKv.Key
+                    if ($entries.Contains($srvName)) {
+                        throw "Duplicate server '$srvName' under mcp_servers."
+                    }
+                    $srvStart = $j
+                    $srvValRes = Read-McpYamlValue -Lines $lines -InlineText $srvKv.ValueRaw -LineIndex $j -ParentIndent $detectedIndent
+                    $srvVal = $srvValRes.Value
+                    if ($null -eq $srvVal) {
+                        $srvVal = [ordered]@{}
+                    }
+                    $entries[$srvName] = $srvVal
+                    $entrySpans[$srvName] = [pscustomobject]@{
+                        StartIndex = $srvStart
+                        EndIndex   = $srvValRes.LastLineIndex
+                    }
+                    $mcpBlockEndIndex = $srvValRes.LastLineIndex
+                    $j = $srvValRes.NextIndex
+                }
+                $i = $j
+                continue
+            }
+
+            $i = Skip-McpYamlSubtree -Lines $lines -StartIndex ($i + 1) -InlineText $kv.ValueRaw
+        }
+
+        return [pscustomobject]@{
+            Dir                = $hermesDir
+            Path               = $configPath
+            Exists             = $true
+            Installed          = $true
+            Valid              = $true
+            Reason             = $null
+            NewLine            = $newLine
+            RawText            = $raw
+            Lines              = $lines
+            HasMcpServers      = $hasMcpServers
+            McpHeaderLineIndex = $mcpHeaderLineIndex
+            McpBlockEndIndex   = $mcpBlockEndIndex
+            McpEmptyInline     = $mcpEmptyInline
+            ServerIndent       = $serverIndent
+            Entries            = $entries
+            EntrySpans         = $entrySpans
+        }
+    }
+    catch {
+        return (& $newBlockedState 'invalid-yaml-or-duplicate-key' $true)
+    }
+}
+
+function Get-McpExpectedHermesPayload {
+    param([Parameter(Mandatory)] [object] $Server)
+    if ($Server.Transport -ceq 'stdio') {
+        $payload = [ordered]@{
+            command = [string]$Server.Command
+            args    = [string[]]@($Server.Args | ForEach-Object { [string]$_ })
+        }
+        if ($Server.Env.Count -gt 0) {
+            $envCopy = [ordered]@{}
+            foreach ($k in $Server.Env.Keys) { $envCopy[$k] = $Server.Env[$k] }
+            $payload['env'] = $envCopy
+        }
+        $payload['enabled'] = [bool]$Server.Enabled
+        return [pscustomobject]@{ Supported = $true; Reason = $null; Payload = $payload }
+    }
+    else {
+        $payload = [ordered]@{ url = [string]$Server.Url }
+        $headers = [ordered]@{}
+        foreach ($k in $Server.Headers.Keys) { $headers[$k] = $Server.Headers[$k] }
+        if ($Server.PSObject.Properties['BearerTokenEnvVar'] -and (-not $headers.Contains('Authorization'))) {
+            $headers['Authorization'] = ('Bearer ${' + $Server.BearerTokenEnvVar + '}')
+        }
+        if ($headers.Count -gt 0) { $payload['headers'] = $headers }
+        $payload['enabled'] = [bool]$Server.Enabled
+        return [pscustomobject]@{ Supported = $true; Reason = $null; Payload = $payload }
+    }
+}
+
+function ConvertFrom-McpHermesLiveEntry {
+    param([Parameter(Mandatory)] [System.Collections.IDictionary] $Entry)
+    $out = [ordered]@{}
+    if ($Entry.Contains('command')) {
+        $out['command'] = $Entry['command']
+    }
+    if ($Entry.Contains('args')) {
+        if ($Entry['args'] -is [array]) {
+            $out['args'] = @($Entry['args'])
+        }
+        else {
+            $out['args'] = $Entry['args']
+        }
+    }
+    if ($Entry.Contains('env')) {
+        $envVal = $Entry['env']
+        if ($envVal -is [System.Collections.IDictionary]) {
+            if ($envVal.Count -gt 0) {
+                $envCopy = [ordered]@{}
+                foreach ($k in $envVal.Keys) { $envCopy[$k] = $envVal[$k] }
+                $out['env'] = $envCopy
+            }
+        }
+        elseif ($null -ne $envVal) {
+            $out['env'] = $envVal
+        }
+    }
+    if ($Entry.Contains('url')) {
+        $out['url'] = $Entry['url']
+    }
+    if ($Entry.Contains('headers')) {
+        $hdrVal = $Entry['headers']
+        if ($hdrVal -is [System.Collections.IDictionary]) {
+            if ($hdrVal.Count -gt 0) {
+                $hdrCopy = [ordered]@{}
+                foreach ($k in $hdrVal.Keys) { $hdrCopy[$k] = $hdrVal[$k] }
+                $out['headers'] = $hdrCopy
+            }
+        }
+        elseif ($null -ne $hdrVal) {
+            $out['headers'] = $hdrVal
+        }
+    }
+
+    $hasNonBoolEnabled = $Entry.Contains('enabled') -and ($Entry['enabled'] -isnot [bool])
+    if ($hasNonBoolEnabled) {
+        $out['enabled'] = $Entry['enabled']
+    }
+    else {
+        $rawEnabled = if ($Entry.Contains('enabled')) { $Entry['enabled'] } else { $null }
+        $rawDisabled = if ($Entry.Contains('disabled')) { $Entry['disabled'] } else { $null }
+        $out['enabled'] = ($rawEnabled -ne $false) -and ($rawDisabled -ne $true)
+    }
+
+    $knownKeys = @('command', 'args', 'env', 'url', 'headers', 'enabled', 'disabled')
+    foreach ($k in $Entry.Keys) {
+        if ($k -cnotin $knownKeys) {
+            $out[$k] = $Entry[$k]
+        }
+    }
+    return $out
+}
+
+function ConvertTo-McpYamlDoubleQuotedString {
+    param([AllowEmptyString()] [string] $Value)
+    $sb = [System.Text.StringBuilder]::new()
+    [void]$sb.Append('"')
+    foreach ($ch in $Value.ToCharArray()) {
+        $code = [int]$ch
+        switch ($code) {
+            0x5C { [void]$sb.Append('\\') }
+            0x22 { [void]$sb.Append('\"') }
+            0x00 { [void]$sb.Append('\0') }
+            0x07 { [void]$sb.Append('\a') }
+            0x08 { [void]$sb.Append('\b') }
+            0x09 { [void]$sb.Append('\t') }
+            0x0A { [void]$sb.Append('\n') }
+            0x0B { [void]$sb.Append('\v') }
+            0x0C { [void]$sb.Append('\f') }
+            0x0D { [void]$sb.Append('\r') }
+            default {
+                if ($code -lt 0x20 -or $code -eq 0x7F) {
+                    [void]$sb.Append(('\u{0:x4}' -f $code))
+                }
+                else {
+                    [void]$sb.Append($ch)
+                }
+            }
+        }
+    }
+    [void]$sb.Append('"')
+    return $sb.ToString()
+}
+
+function ConvertTo-McpYamlKey {
+    param([Parameter(Mandatory)] [string] $Key)
+    if ($Key -cmatch '^[A-Za-z_][A-Za-z0-9_-]*$' -and $Key -cnotmatch '^(?i:true|false|yes|no|on|off|y|n|null)$') {
+        return $Key
+    }
+    return (ConvertTo-McpYamlDoubleQuotedString -Value $Key)
+}
+
+function Format-McpHermesServerYamlLines {
+    param(
+        [Parameter(Mandatory)] [string] $ServerName,
+        [Parameter(Mandatory)] [System.Collections.IDictionary] $Payload,
+        [Parameter(Mandatory)] [int] $ServerIndent,
+        [Parameter(Mandatory)] [string] $Eol
+    )
+    $sPad = ' ' * $ServerIndent
+    $pPad = ' ' * ($ServerIndent + 2)
+    $iPad = ' ' * ($ServerIndent + 4)
+    $rendered = [System.Collections.Generic.List[object]]::new()
+
+    $addLine = {
+        param([string] $Text)
+        $rendered.Add([pscustomobject]@{ Index = -1; Content = $Text; Eol = $Eol })
+    }
+
+    & $addLine ($sPad + (ConvertTo-McpYamlKey -Key $ServerName) + ':')
+    if ($Payload.Contains('command')) {
+        & $addLine ($pPad + 'command: ' + (ConvertTo-McpYamlDoubleQuotedString -Value ([string]$Payload['command'])))
+        $argsArr = @($Payload['args'])
+        if ($argsArr.Count -eq 0) {
+            & $addLine ($pPad + 'args: []')
+        }
+        else {
+            & $addLine ($pPad + 'args:')
+            foreach ($arg in $argsArr) {
+                & $addLine ($iPad + '- ' + (ConvertTo-McpYamlDoubleQuotedString -Value ([string]$arg)))
+            }
+        }
+        if ($Payload.Contains('env') -and $null -ne $Payload['env'] -and $Payload['env'].Count -gt 0) {
+            & $addLine ($pPad + 'env:')
+            foreach ($k in $Payload['env'].Keys) {
+                & $addLine ($iPad + (ConvertTo-McpYamlKey -Key ([string]$k)) + ': ' + (ConvertTo-McpYamlDoubleQuotedString -Value ([string]$Payload['env'][$k])))
+            }
+        }
+    }
+    else {
+        & $addLine ($pPad + 'url: ' + (ConvertTo-McpYamlDoubleQuotedString -Value ([string]$Payload['url'])))
+        if ($Payload.Contains('headers') -and $null -ne $Payload['headers'] -and $Payload['headers'].Count -gt 0) {
+            & $addLine ($pPad + 'headers:')
+            foreach ($k in $Payload['headers'].Keys) {
+                & $addLine ($iPad + (ConvertTo-McpYamlKey -Key ([string]$k)) + ': ' + (ConvertTo-McpYamlDoubleQuotedString -Value ([string]$Payload['headers'][$k])))
+            }
+        }
+    }
+    $enabledLiteral = if ($Payload.Contains('enabled') -and ($Payload['enabled'] -eq $false)) { 'false' } else { 'true' }
+    & $addLine ($pPad + "enabled: $enabledLiteral")
+    return $rendered.ToArray()
+}
+
+function Set-McpHermesYamlEntries {
+    param(
+        [Parameter(Mandatory)] [string] $HomeRoot,
+        [Parameter(Mandatory)] [string] $Path,
+        [Parameter(Mandatory)] [object[]] $PlatformItems
+    )
+    $state = Read-McpHermesConfigState -HomeRoot $HomeRoot
+    if (-not $state.Valid) {
+        throw "Cannot update Hermes config.yaml ($($state.Reason))."
+    }
+    if (-not $state.Installed) {
+        throw 'Cannot update Hermes config.yaml (hermes-not-installed).'
+    }
+    Assert-PlainPathNoReparse -Path $Path -AllowMissing -MessagePrefix 'MCP target path cannot contain reparse points'
+
+    $eol = $state.NewLine
+    $lineList = [System.Collections.Generic.List[object]]::new()
+    foreach ($l in @($state.Lines)) {
+        $lineList.Add([pscustomobject]@{ Index = $l.Index; Content = $l.Content; Eol = $l.Eol })
+    }
+
+    if ((-not $state.HasMcpServers) -or $state.McpEmptyInline) {
+        $serverIndent = 2
+        if ($state.McpEmptyInline) {
+            $hdrIdx = $state.McpHeaderLineIndex
+            $hdrSplit = Split-McpYamlComment -Text $lineList[$hdrIdx].Content
+            $hdrCommentSuffix = if ($hdrSplit.Comment) { ' ' + $hdrSplit.Comment } else { '' }
+            $hdrEol = if ($lineList[$hdrIdx].Eol) { $lineList[$hdrIdx].Eol } else { $eol }
+            $lineList[$hdrIdx] = [pscustomobject]@{ Index = $hdrIdx; Content = ("mcp_servers:$hdrCommentSuffix"); Eol = $hdrEol }
+            $insertOffset = $hdrIdx + 1
+            foreach ($item in $PlatformItems) {
+                $rendered = @(Format-McpHermesServerYamlLines -ServerName $item.Server -Payload $item.After -ServerIndent $serverIndent -Eol $eol)
+                foreach ($r in $rendered) {
+                    $lineList.Insert($insertOffset, $r)
+                    $insertOffset++
+                }
+            }
+        }
+        else {
+            if ($lineList.Count -gt 0 -and $lineList[$lineList.Count - 1].Eol -eq '') {
+                $lineList[$lineList.Count - 1] = [pscustomobject]@{
+                    Index   = $lineList[$lineList.Count - 1].Index
+                    Content = $lineList[$lineList.Count - 1].Content
+                    Eol     = $eol
+                }
+            }
+            $lineList.Add([pscustomobject]@{ Index = -1; Content = 'mcp_servers:'; Eol = $eol })
+            foreach ($item in $PlatformItems) {
+                $rendered = @(Format-McpHermesServerYamlLines -ServerName $item.Server -Payload $item.After -ServerIndent $serverIndent -Eol $eol)
+                foreach ($r in $rendered) {
+                    $lineList.Add($r)
+                }
+            }
+        }
+    }
+    else {
+        $serverIndent = $state.ServerIndent
+        $insertAfterIndex = $state.McpBlockEndIndex
+        $updates = [System.Collections.Generic.List[object]]::new()
+        $adds = [System.Collections.Generic.List[object]]::new()
+        foreach ($item in $PlatformItems) {
+            if ($state.EntrySpans.ContainsKey($item.Server)) {
+                $span = $state.EntrySpans[$item.Server]
+                $updates.Add([pscustomobject]@{ Item = $item; StartIndex = $span.StartIndex; EndIndex = $span.EndIndex })
+            }
+            else {
+                $adds.Add($item)
+            }
+        }
+        foreach ($upd in @($updates | Sort-Object -Property StartIndex -Descending)) {
+            $oldCount = $upd.EndIndex - $upd.StartIndex + 1
+            $rendered = @(Format-McpHermesServerYamlLines -ServerName $upd.Item.Server -Payload $upd.Item.After -ServerIndent $serverIndent -Eol $eol)
+            $lineList.RemoveRange($upd.StartIndex, $oldCount)
+            for ($k = 0; $k -lt $rendered.Count; $k++) {
+                $lineList.Insert($upd.StartIndex + $k, $rendered[$k])
+            }
+            if ($upd.EndIndex -le $insertAfterIndex) {
+                $insertAfterIndex += ($rendered.Count - $oldCount)
+            }
+        }
+        if ($adds.Count -gt 0) {
+            if ($insertAfterIndex -ge 0 -and $lineList[$insertAfterIndex].Eol -eq '') {
+                $lineList[$insertAfterIndex] = [pscustomobject]@{
+                    Index   = $lineList[$insertAfterIndex].Index
+                    Content = $lineList[$insertAfterIndex].Content
+                    Eol     = $eol
+                }
+            }
+            $insertPos = $insertAfterIndex + 1
+            foreach ($addItem in $adds) {
+                $rendered = @(Format-McpHermesServerYamlLines -ServerName $addItem.Server -Payload $addItem.After -ServerIndent $serverIndent -Eol $eol)
+                foreach ($r in $rendered) {
+                    $lineList.Insert($insertPos, $r)
+                    $insertPos++
+                }
+            }
+        }
+    }
+
+    $sb = [System.Text.StringBuilder]::new()
+    foreach ($l in $lineList) {
+        [void]$sb.Append($l.Content)
+        [void]$sb.Append($l.Eol)
+    }
+    $parent = Split-Path -Parent $Path
+    if ($parent -and (-not (Test-Path -LiteralPath $parent))) {
+        [IO.Directory]::CreateDirectory($parent) | Out-Null
+    }
+    [IO.File]::WriteAllText($Path, $sb.ToString(), [Text.UTF8Encoding]::new($false))
+}
+
 function Get-McpPlan {
     param(
         [Parameter(Mandatory)] [string] $RepoRoot,
         [Parameter(Mandatory)] [string] $HomeRoot,
-        [string[]] $Platform = @('Antigravity', 'Codex'),
+        [string[]] $Platform = @('Antigravity', 'Codex', 'Hermes'),
         [string[]] $Server = @()
     )
     $resolvedPlatforms = Resolve-McpPlatforms -Values $Platform
@@ -712,6 +2114,7 @@ function Get-McpPlan {
 
     $agState = if ('Antigravity' -cin $resolvedPlatforms) { Read-McpJsonConfigState -Path $antigravityPath -ContainerPath @('mcpServers') } else { $null }
     $cxState = if ('Codex' -cin $resolvedPlatforms) { Get-McpCodexInventory -HomeRoot $HomeRoot } else { $null }
+    $hmState = if ('Hermes' -cin $resolvedPlatforms) { Read-McpHermesConfigState -HomeRoot $HomeRoot } else { $null }
 
     $managedNamesForPlatform = @{}
     foreach ($pName in $resolvedPlatforms) {
@@ -824,6 +2227,154 @@ function Get-McpPlan {
                         UnmanagedCount = $unmanagedCount
                         NativeAction   = $null
                     })
+                }
+                continue
+            }
+
+            if ($pName -ceq 'Hermes') {
+                $targetState = $hmState
+                $unmanagedCount = if ($targetState.Valid -and $targetState.Installed) {
+                    @($targetState.Entries.Keys | Where-Object { $_ -cnotin $managedNamesForPlatform['Hermes'] }).Count
+                }
+                else { 0 }
+                $expected = Get-McpExpectedHermesPayload -Server $srv
+                $targetLabel = "%LOCALAPPDATA%/hermes/config.yaml#mcp_servers.$($srv.Name)"
+
+                if (-not $targetState.Valid) {
+                    $items.Add([ordered]@{
+                        Platform       = 'Hermes'
+                        Server         = $srv.Name
+                        Target         = $targetLabel
+                        TargetPath     = $targetState.Path
+                        Action         = 'blocked'
+                        State          = 'blocked'
+                        Reason         = $targetState.Reason
+                        After          = $expected.Payload
+                        Changes        = @()
+                        UnmanagedCount = $unmanagedCount
+                        NativeAction   = $null
+                    })
+                    continue
+                }
+                if (-not $targetState.Installed) {
+                    $items.Add([ordered]@{
+                        Platform       = 'Hermes'
+                        Server         = $srv.Name
+                        Target         = $targetLabel
+                        TargetPath     = $targetState.Path
+                        Action         = 'not-installed'
+                        State          = 'not-installed'
+                        Reason         = 'hermes-not-installed'
+                        After          = $expected.Payload
+                        Changes        = @()
+                        UnmanagedCount = 0
+                        NativeAction   = $null
+                    })
+                    continue
+                }
+                if (-not $srv.Enabled) {
+                    $items.Add([ordered]@{
+                        Platform       = 'Hermes'
+                        Server         = $srv.Name
+                        Target         = $targetLabel
+                        TargetPath     = $targetState.Path
+                        Action         = 'blocked'
+                        State          = 'blocked'
+                        Reason         = 'server-disabled-in-manifest'
+                        After          = $expected.Payload
+                        Changes        = @()
+                        UnmanagedCount = $unmanagedCount
+                        NativeAction   = $null
+                    })
+                    continue
+                }
+
+                $hasEntry = $targetState.Entries.Contains($srv.Name)
+                $beforeRaw = if ($hasEntry) { $targetState.Entries[$srv.Name] } else { $null }
+                if (-not $hasEntry) {
+                    $items.Add([ordered]@{
+                        Platform       = 'Hermes'
+                        Server         = $srv.Name
+                        Target         = $targetLabel
+                        TargetPath     = $targetState.Path
+                        Action         = 'add'
+                        State          = 'missing'
+                        Reason         = 'missing-managed-entry'
+                        After          = $expected.Payload
+                        Changes        = (Get-McpObjectFieldDiffs -Before $null -After $expected.Payload)
+                        UnmanagedCount = $unmanagedCount
+                        NativeAction   = $null
+                    })
+                }
+                elseif ($beforeRaw -isnot [System.Collections.IDictionary]) {
+                    $items.Add([ordered]@{
+                        Platform       = 'Hermes'
+                        Server         = $srv.Name
+                        Target         = $targetLabel
+                        TargetPath     = $targetState.Path
+                        Action         = 'update'
+                        State          = 'different'
+                        Reason         = 'managed-entry-differs'
+                        After          = $expected.Payload
+                        Changes        = @('~ / (type-changed)')
+                        UnmanagedCount = $unmanagedCount
+                        NativeAction   = $null
+                    })
+                }
+                else {
+                    $beforeHermes = ConvertFrom-McpHermesLiveEntry -Entry $beforeRaw
+                    $isValidEnabledBool = ($beforeHermes['enabled'] -is [bool])
+                    $liveEnabled = if ($isValidEnabledBool) { [bool]$beforeHermes['enabled'] } else { $true }
+                    $preserveLocalDisabled = $srv.Enabled -and ($srv.EnabledPolicy -ceq 'preserve-disabled') -and $isValidEnabledBool -and (-not $liveEnabled)
+                    $compareBefore = $beforeHermes
+                    $compareExpected = $expected.Payload
+                    $effectiveAfter = $expected.Payload
+                    if ($preserveLocalDisabled) {
+                        $compareBefore = [ordered]@{}
+                        foreach ($k in $beforeHermes.Keys) {
+                            if ($k -cne 'enabled') { $compareBefore[$k] = $beforeHermes[$k] }
+                        }
+                        $compareExpected = [ordered]@{}
+                        foreach ($k in $expected.Payload.Keys) {
+                            if ($k -cne 'enabled') { $compareExpected[$k] = $expected.Payload[$k] }
+                        }
+                        $effectiveAfter = [ordered]@{}
+                        foreach ($k in $expected.Payload.Keys) {
+                            $effectiveAfter[$k] = $expected.Payload[$k]
+                        }
+                        $effectiveAfter['enabled'] = $false
+                    }
+                    if (Test-McpObjectJsonEqual -Left $compareBefore -Right $compareExpected) {
+                        $matchReason = if ($preserveLocalDisabled) { 'managed-entry-match-local-disabled' } else { 'managed-entry-match' }
+                        $items.Add([ordered]@{
+                            Platform       = 'Hermes'
+                            Server         = $srv.Name
+                            Target         = $targetLabel
+                            TargetPath     = $targetState.Path
+                            Action         = 'unchanged'
+                            State          = 'unchanged'
+                            Reason         = $matchReason
+                            After          = $effectiveAfter
+                            Changes        = @()
+                            UnmanagedCount = $unmanagedCount
+                            NativeAction   = $null
+                        })
+                    }
+                    else {
+                        $items.Add([ordered]@{
+                            Platform       = 'Hermes'
+                            Server         = $srv.Name
+                            Target         = $targetLabel
+                            TargetPath     = $targetState.Path
+                            Action         = 'update'
+                            State          = 'different'
+                            Reason         = 'managed-entry-differs'
+                            After          = $effectiveAfter
+                            Changes        = (Get-McpObjectFieldDiffs -Before $compareBefore -After $compareExpected)
+                            UnmanagedCount = $unmanagedCount
+                            NativeAction   = $null
+                        })
+                    }
                 }
                 continue
             }
@@ -963,7 +2514,7 @@ function Get-McpPlan {
         }
     }
 
-    $counts = [ordered]@{ add = 0; update = 0; unchanged = 0; blocked = 0 }
+    $counts = [ordered]@{ add = 0; update = 0; unchanged = 0; blocked = 0; 'not-installed' = 0 }
     foreach ($item in $items) {
         $counts[$item.Action]++
     }
@@ -1048,7 +2599,7 @@ function Invoke-McpDeploy {
     param(
         [Parameter(Mandatory)] [string] $RepoRoot,
         [Parameter(Mandatory)] [string] $HomeRoot,
-        [string[]] $Platform = @('Antigravity', 'Codex'),
+        [string[]] $Platform = @('Antigravity', 'Codex', 'Hermes'),
         [string[]] $Server = @(),
         [Parameter(Mandatory)] [string] $BackupRoot,
         [switch] $DoApply,
@@ -1069,6 +2620,12 @@ function Invoke-McpDeploy {
     if ($blocked.Count -gt 0) {
         $reasons = @($blocked | ForEach-Object { "$($_.Platform)/$($_.Server):$($_.Reason)" }) -join ', '
         throw "MCP deployment blocked ($reasons). Resolve blocked items before -Apply."
+    }
+
+    $resolvedPlatforms = @($plan.Platforms)
+    $notInstalledHermes = @($plan.Items | Where-Object { $_.Platform -ceq 'Hermes' -and $_.Action -ceq 'not-installed' })
+    if ($resolvedPlatforms.Count -eq 1 -and $resolvedPlatforms[0] -ceq 'Hermes' -and $notInstalledHermes.Count -gt 0) {
+        throw 'MCP deployment blocked (Hermes not installed at default home).'
     }
 
     $pending = @($plan.Items | Where-Object { $_.Action -cin @('add', 'update') })
@@ -1097,6 +2654,10 @@ function Invoke-McpDeploy {
     if ($freshBlocked.Count -gt 0) {
         throw 'MCP state became blocked during pre-Apply validation.'
     }
+    $freshNotInstalledHermes = @($freshPlan.Items | Where-Object { $_.Platform -ceq 'Hermes' -and $_.Action -ceq 'not-installed' })
+    if ($resolvedPlatforms.Count -eq 1 -and $resolvedPlatforms[0] -ceq 'Hermes' -and $freshNotInstalledHermes.Count -gt 0) {
+        throw 'MCP deployment blocked (Hermes not installed at default home).'
+    }
     $freshPending = @($freshPlan.Items | Where-Object { $_.Action -cin @('add', 'update') })
     if (-not (Test-McpPendingPlanMatches -Expected $pending -Actual $freshPending)) {
         throw 'MCP plan drifted during pre-Apply validation; re-run -DryRun to review before -Apply.'
@@ -1106,9 +2667,9 @@ function Invoke-McpDeploy {
     $stamp = (Get-Date).ToUniversalTime().ToString('yyyyMMdd-HHmmss-fff')
     $backupDir = Join-Path $BackupRoot "mcp-backup-$stamp"
     $backedUpFiles = [ordered]@{}
-    $jsonFileTargets = [System.Collections.Generic.List[object]]::new()
+    $fileTargets = [System.Collections.Generic.List[object]]::new()
 
-    foreach ($pName in @('Antigravity')) {
+    foreach ($pName in @('Antigravity', 'Hermes')) {
         $pItems = @($pending | Where-Object { $_.Platform -ceq $pName })
         if ($pItems.Count -eq 0) { continue }
         $path = $pItems[0].TargetPath
@@ -1122,8 +2683,9 @@ function Invoke-McpDeploy {
             Copy-Item -LiteralPath $path -Destination $backupFile -Force
             $backedUpFiles[$path] = $backupFile
         }
-        $jsonFileTargets.Add([pscustomobject]@{
+        $fileTargets.Add([pscustomobject]@{
             Platform      = $pName
+            Kind          = $(if ($pName -ceq 'Hermes') { 'Yaml' } else { 'Json' })
             Path          = $path
             ContainerPath = @('mcpServers')
             Items         = $pItems
@@ -1145,17 +2707,22 @@ function Invoke-McpDeploy {
         }
     }
 
-    $attemptedJson = [System.Collections.Generic.List[object]]::new()
+    $attemptedFiles = [System.Collections.Generic.List[object]]::new()
     try {
-        foreach ($target in $jsonFileTargets) {
-            $attemptedJson.Add($target)
-            Set-McpJsonEntries -Path $target.Path -ContainerPath $target.ContainerPath -PlatformItems $target.Items
+        foreach ($target in $fileTargets) {
+            $attemptedFiles.Add($target)
+            if ($target.Kind -ceq 'Yaml') {
+                Set-McpHermesYamlEntries -HomeRoot $HomeRoot -Path $target.Path -PlatformItems $target.Items
+            }
+            else {
+                Set-McpJsonEntries -Path $target.Path -ContainerPath $target.ContainerPath -PlatformItems $target.Items
+            }
         }
     }
     catch {
         $writeError = $_
-        for ($i = $attemptedJson.Count - 1; $i -ge 0; $i--) {
-            $target = $attemptedJson[$i]
+        for ($i = $attemptedFiles.Count - 1; $i -ge 0; $i--) {
+            $target = $attemptedFiles[$i]
             try {
                 if ($target.Existed -and $target.BackupFile) {
                     Copy-Item -LiteralPath $target.BackupFile -Destination $target.Path -Force
@@ -1167,7 +2734,7 @@ function Invoke-McpDeploy {
             catch { Write-Warning "MCP rollback could not restore $($target.Path): $($_.Exception.Message)" }
         }
         if ($backedUpFiles.Count -gt 0) {
-            Write-Warning "MCP JSON projection failed; pre-Apply backups preserved at $backupDir"
+            Write-Warning "MCP file projection failed; pre-Apply backups preserved at $backupDir"
         }
         throw $writeError
     }
@@ -1234,15 +2801,22 @@ function Write-McpPlanReport {
             'add' { 'Green' }
             'update' { 'Yellow' }
             'blocked' { 'Red' }
+            'not-installed' { 'DarkGray' }
             default { 'DarkGray' }
         }
-        Write-Host ("  [{0,-11}] {1,-16} {2,-9} ({3})  unmanaged-preserved={4}" -f $item.Platform, $item.Server, $item.Action, $item.Reason, $item.UnmanagedCount) -ForegroundColor $color
+        Write-Host ("  [{0,-11}] {1,-16} {2,-13} ({3})  unmanaged-preserved={4}" -f $item.Platform, $item.Server, $item.Action, $item.Reason, $item.UnmanagedCount) -ForegroundColor $color
         foreach ($diff in @($item.Changes)) {
             Write-Host "      $diff" -ForegroundColor DarkGray
         }
     }
     $s = $Report.Summary
-    Write-Host ("Plan: add={0} update={1} unchanged={2} blocked={3}" -f $s.add, $s.update, $s.unchanged, $s.blocked)
+    $notInstalledCount = if ($s.Contains('not-installed')) { [int]$s['not-installed'] } else { 0 }
+    if ($notInstalledCount -gt 0) {
+        Write-Host ("Plan: add={0} update={1} unchanged={2} blocked={3} not-installed={4}" -f $s.add, $s.update, $s.unchanged, $s.blocked, $notInstalledCount)
+    }
+    else {
+        Write-Host ("Plan: add={0} update={1} unchanged={2} blocked={3}" -f $s.add, $s.update, $s.unchanged, $s.blocked)
+    }
     if ($Report.Contains('BackupDir') -and $Report.BackupDir) {
         Write-Host "Backup: $($Report.BackupDir)" -ForegroundColor Cyan
     }
