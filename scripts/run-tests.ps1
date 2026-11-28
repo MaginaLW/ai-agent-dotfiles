@@ -22,14 +22,14 @@
 
 .PARAMETER MaxParallel
     Maximum number of suite processes to run concurrently (1..32). Defaults to
-    min(4, ProcessorCount). Forced to 1 when -Suite is specified.
+    min(4, max(1, floor(ProcessorCount / 2))). Forced to 1 when -Suite is specified.
 #>
 [CmdletBinding()]
 param(
     [string] $RepoRoot = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path,
     [string] $Suite,
     [ValidateRange(1, 32)]
-    [int] $MaxParallel = [Math]::Min(4, [Math]::Max(1, [Environment]::ProcessorCount))
+    [int] $MaxParallel = [Math]::Min(4, [Math]::Max(1, [int][Math]::Floor([Environment]::ProcessorCount / 2)))
 )
 
 Set-StrictMode -Version Latest
@@ -140,16 +140,25 @@ function Complete-TestSuiteSlot {
         if ($Slot.StartupFailed -and $process -and -not $process.HasExited) {
             try { $process.Kill($true); $null = $process.WaitForExit(5000) } catch {}
         }
+        elseif (-not $Slot.TimedOut -and -not $Slot.StartupFailed -and $process) {
+            # Complete process-exit synchronization so .NET flushes async stdout/stderr EOF cleanly.
+            $null = $process.WaitForExit(5000)
+        }
         if ($process -and $Slot.StdoutTask -and $Slot.StderrTask) {
             # A descendant that keeps the inherited pipes open must not hang the runner.
-            if ([System.Threading.Tasks.Task]::WaitAll([System.Threading.Tasks.Task[]] @($Slot.StdoutTask, $Slot.StderrTask), 5000)) {
+            $drainTimeoutMs = if ($Slot.TimedOut -or $Slot.StartupFailed) { 5000 } else { 15000 }
+            if ([System.Threading.Tasks.Task]::WaitAll([System.Threading.Tasks.Task[]] @($Slot.StdoutTask, $Slot.StderrTask), $drainTimeoutMs)) {
                 $Slot.OutputDrained = $true
                 $stdoutText = $Slot.StdoutTask.Result
                 $stderrText = $Slot.StderrTask.Result
             }
-            elseif (-not $Slot.Problem) {
-                $Slot.Problem = 'output was not drained'
-                $Slot.ProblemKind = 'OutputNotDrained'
+            else {
+                if ($Slot.StdoutTask.IsCompletedSuccessfully) { $stdoutText = $Slot.StdoutTask.Result }
+                if ($Slot.StderrTask.IsCompletedSuccessfully) { $stderrText = $Slot.StderrTask.Result }
+                if (-not $Slot.Problem) {
+                    $Slot.Problem = 'output was not drained'
+                    $Slot.ProblemKind = 'OutputNotDrained'
+                }
             }
         }
         if (-not $Slot.Problem -and $process -and $process.ExitCode -ne 0) {
@@ -203,6 +212,13 @@ function Complete-TestSuiteSlot {
 $pwsh = @(Get-Command pwsh -CommandType Application -ErrorAction Stop)[0].Source
 $failures = [System.Collections.Generic.List[string]]::new()
 $effectiveMaxParallel = if ($PSBoundParameters.ContainsKey('Suite')) { 1 } else { [Math]::Min($MaxParallel, [Math]::Max(1, $suites.Count)) }
+$minWorker = 0
+$minIo = 0
+[System.Threading.ThreadPool]::GetMinThreads([ref]$minWorker, [ref]$minIo)
+$neededWorkers = ($effectiveMaxParallel * 2) + 4
+if ($minWorker -lt $neededWorkers) {
+    $null = [System.Threading.ThreadPool]::SetMinThreads($neededWorkers, $minIo)
+}
 $pending = [System.Collections.Generic.Queue[System.IO.FileInfo]]::new()
 foreach ($suiteFile in @($suites | Sort-Object @{ Expression = { $budgets[$_.Name] }; Descending = $true }, @{ Expression = { $_.Name }; Descending = $false })) {
     $pending.Enqueue($suiteFile)
