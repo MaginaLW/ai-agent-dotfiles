@@ -1,6 +1,6 @@
 # New Windows Machine Onboarding
 
-Set up one Windows machine for the daily Codex and Antigravity workflow (skills, global agreements, plugins, and managed MCP servers).
+Set up one Windows machine for the daily Codex, Antigravity, and Hermes workflow (skills, global agreements, plugins, and managed MCP servers).
 The `work` environment selects ten skills from `codex/skills/` for Codex. Bootstrap builds `codex/skills/` from `skills-source/`.
 Use PowerShell 7+. Start only after the owner names the machine.
 
@@ -100,9 +100,37 @@ pwsh -NoProfile -File .\scripts\agent-dotfiles.ps1 antigravity deploy -Apply
 
 For a missing external marketplace plugin such as `unity`, select it explicitly with `-ExternalPlugin unity` in both the preview and the separately authorized Apply. If file locks interfere, close Antigravity Desktop before installation. See [the plugin guide](README.md#15-antigravity-插件) for ownership and post-install readback.
 
+## 4b. Set up Hermes (`SOUL.md` and shared skills)
+
+Ensure Hermes Agent is already installed on the machine under its default `%LOCALAPPDATA%\hermes` root and `default` profile (non-default `HERMES_HOME`, `HERMES_DATA_DIR_SUFFIX`, non-`default` `active_profile`, or reparse points fail closed as `blocked`; if Hermes is absent, `status` and `-DryRun` report `not-installed` cleanly).
+
+Preview the managed block in `%LOCALAPPDATA%\hermes\SOUL.md`:
+
+```powershell
+pwsh -NoProfile -File .\scripts\agent-dotfiles.ps1 config status -Platform Hermes
+pwsh -NoProfile -File .\scripts\agent-dotfiles.ps1 config pull -Platform Hermes -DryRun
+```
+
+If `%LOCALAPPDATA%\hermes\SOUL.md` already has local content without `<!-- BEGIN/END AI-AGENT-DOTFILES: hermes/SOUL.md -->` markers, wrap or append the markers manually while keeping existing persona text intact, then re-run `-DryRun`. Once the owner approves that change, apply it and read back:
+
+```powershell
+pwsh -NoProfile -File .\scripts\agent-dotfiles.ps1 config pull -Platform Hermes -Apply
+pwsh -NoProfile -File .\scripts\agent-dotfiles.ps1 config status -Platform Hermes
+```
+
+Next, preview and apply the 8 collision-free shared skills declared in `harness-source/hermes/skills.psd1` into `%LOCALAPPDATA%\hermes\skills\ai-agent-dotfiles\` (only after explicit owner authorization; `deploy.ps1` and Codex standing `work` grant do not cover Hermes):
+
+```powershell
+pwsh -NoProfile -File .\scripts\agent-dotfiles.ps1 hermes status
+pwsh -NoProfile -File .\scripts\agent-dotfiles.ps1 hermes deploy -DryRun
+pwsh -NoProfile -File .\scripts\agent-dotfiles.ps1 hermes deploy -Apply
+```
+
+Verify with `hermes skills list` that the 8 `ai-agent-dotfiles` skills appear cleanly without ambiguity. See [docs/README.md §18](README.md#18-hermes-共享技能hermes-skills) for fail-closed collision rules and backup state.
+
 ## 5. Project managed MCP servers (`mcp-sync`)
 
-Ensure required runtimes/CLIs for declared servers (for example `uv` / `uvx` for `blender`, and `codex` on `PATH` for Codex projection) are installed. Preview across Antigravity and Codex, then run `-Apply` only after explicit owner authorization (Codex standing `work` skill grant does not cover MCP Apply):
+Ensure required runtimes/CLIs for declared servers (for example `uv` / `uvx` for `blender`, and `codex` on `PATH` for Codex projection) are installed. Preview across Antigravity, Codex, and Hermes, then run `-Apply` only after explicit owner authorization (Codex standing `work` skill grant does not cover MCP Apply):
 
 ```powershell
 pwsh -NoProfile -File .\scripts\agent-dotfiles.ps1 mcp status
@@ -126,7 +154,7 @@ See [docs/README.md §16](README.md#16-受管-mcp-分发mcp-sync) for per-client
 
 ## 6. Verify status and optional local dashboard
 
-Run one read-only command to verify the recorded environment, configuration blocks, Antigravity plugins, and managed MCP status:
+Run one read-only command to verify the recorded environment, configuration blocks, Antigravity plugins, Hermes shared skills, and managed MCP status:
 
 ```powershell
 pwsh -NoProfile -File .\scripts\agent-dotfiles.ps1 status

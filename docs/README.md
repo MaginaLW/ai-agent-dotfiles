@@ -1,6 +1,6 @@
 # ai-agent-dotfiles 使用说明
 
-日常工作环境是 Codex；Antigravity 另有插件与全局规则。操作权限见 [AGENTS.md](../AGENTS.md)。首次安装见[新电脑接入](ONBOARD_NEW_MACHINE.md)，配置排查见 [Codex 本机指南](CODEX_TUNING.md)，当前进展见 [STATUS.md](../STATUS.md)。
+日常工作环境是 Codex；Antigravity 另有插件与全局规则，Hermes 另有 `SOUL.md`、共享技能与受管 MCP 投影。操作权限见 [AGENTS.md](../AGENTS.md)。首次安装见[新电脑接入](ONBOARD_NEW_MACHINE.md)，配置排查见 [Codex 本机指南](CODEX_TUNING.md)，当前进展见 [STATUS.md](../STATUS.md)。
 
 ## 目录
 
@@ -549,7 +549,7 @@ pwsh -NoProfile -File scripts/agent-dotfiles.ps1 mcp deploy -Apply
 
 - `mcp status` 与 `mcp deploy -DryRun` 只读不写；若 plan 存在任何 `blocked` 项，`-Apply` 直接拒绝执行。
 - 存在待写入的 `add` / `update` 项时，`-Apply` 先执行秘密扫描门禁（除非显式 `-SkipSecretScan`）并复核最新计划，写前将已存在的目标配置文件备份到 `~/.ai-agent-dotfiles-backups/mcp-backup-<UTC 时间戳>\`（`-BackupRoot` 可改）。
-- JSON 写入失败时尽力按反序从本次备份恢复或清理新建目标文件；`-Apply` 完成后执行读回校验，确认受管条目收敛为 `unchanged` 且非托管数量未减少。
+- 配置文件（Antigravity JSON / Hermes YAML）写入失败时尽力按反序从本次备份恢复或清理新建目标文件；`-Apply` 完成后执行读回校验，确认受管条目收敛为 `unchanged` 且非托管数量未减少。
 - `mcp deploy` 独立于 `sync` / `deploy.ps1`，`AGENTS.md` Skill rules 10 不覆盖 MCP Apply；每次执行 `-Apply` 前须审查完整 dry-run 并获得明确授权。
 - 回归测试：`pwsh -NoProfile -File tests/mcp-sync.tests.ps1`。
 
