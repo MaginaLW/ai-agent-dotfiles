@@ -1,4 +1,4 @@
-#requires -Version 7.0
+﻿#requires -Version 7.0
 <#
 .SYNOPSIS
     Self-contained regression tests for the config-sync scripts
@@ -113,7 +113,11 @@ $outcome = 'Failed'
 $exceptionType = ''
 $failureScript = ''
 $failureLine = 0
+$savedHermesHome = $env:HERMES_HOME
+$savedHermesSuffix = $env:HERMES_DATA_DIR_SUFFIX
 try {
+    Remove-Item Env:HERMES_HOME -ErrorAction SilentlyContinue
+    Remove-Item Env:HERMES_DATA_DIR_SUFFIX -ErrorAction SilentlyContinue
     $defaultRepo = New-TempRepo 'codex-default-repo'
     $defaultHome = Join-Path $work 'codex-default-home'
     Set-File (Join-Path $defaultRepo 'codex/AGENTS.md') '# Managed defaults'
@@ -141,14 +145,17 @@ try {
     Assert ((Resolve-ConfigPlatforms -Values @(' codex , ANTIGRAVITY ')) -join ',' -eq 'Codex,Antigravity') 'Resolve-ConfigPlatforms trims whitespace and normalizes case'
     Assert ((Resolve-ConfigPlatforms -Values @('Codex', 'codex', 'CODEX')) -join ',' -eq 'Codex') 'Resolve-ConfigPlatforms deduplicates names preserving order'
     Assert ((Resolve-ConfigPlatforms -Values @('Codex', 'Antigravity')) -join ',' -eq 'Codex,Antigravity') 'Resolve-ConfigPlatforms supports both config platforms'
+    Assert ((Resolve-ConfigPlatforms -Values @('Hermes')) -join ',' -eq 'Hermes') 'Resolve-ConfigPlatforms supports Hermes'
+    Assert ((Resolve-ConfigPlatforms -Values @(' codex , hermes , ANTIGRAVITY ')) -join ',' -eq 'Codex,Hermes,Antigravity') 'Resolve-ConfigPlatforms normalizes Hermes alongside Codex and Antigravity'
     try { $null = Resolve-ConfigPlatforms -Values @('BadPlatform'); Assert $false 'Expected exception on unsupported platform' }
-    catch { Assert ($_.Exception.Message -match "Unsupported config platform 'BadPlatform'") 'Resolve-ConfigPlatforms rejects unsupported platform' }
+    catch { Assert ($_.Exception.Message -match "Unsupported config platform 'BadPlatform'" -and $_.Exception.Message -match 'Expected Codex, Antigravity, or Hermes\.') 'Resolve-ConfigPlatforms rejects unsupported platform' }
     try { $null = Resolve-ConfigPlatforms -Values @(''); Assert $false 'Expected exception on empty platform string' }
-    catch { Assert ($_.Exception.Message -match 'requires at least one platform name') 'Resolve-ConfigPlatforms rejects empty platform string' }
+    catch { Assert ($_.Exception.Message -match 'requires at least one platform name' -and $_.Exception.Message -match 'Expected Codex, Antigravity, or Hermes\.') 'Resolve-ConfigPlatforms rejects empty platform string' }
 
     $managedAgentsTargets = @(
-        @{ Platform = 'Codex'; RepoRel = 'codex/AGENTS.md'; HomeRel = '.codex/AGENTS.md'; BlockId = 'codex/AGENTS.md' }
-        @{ Platform = 'Antigravity'; RepoRel = 'antigravity/AGENTS.md'; HomeRel = '.gemini/config/AGENTS.md'; BlockId = 'antigravity/AGENTS.md' }
+        @{ Platform = 'Codex'; Item = 'AGENTS.md'; RepoRel = 'codex/AGENTS.md'; HomeRel = '.codex/AGENTS.md'; BlockId = 'codex/AGENTS.md' }
+        @{ Platform = 'Antigravity'; Item = 'AGENTS.md'; RepoRel = 'antigravity/AGENTS.md'; HomeRel = '.gemini/config/AGENTS.md'; BlockId = 'antigravity/AGENTS.md' }
+        @{ Platform = 'Hermes'; Item = 'SOUL.md'; RepoRel = 'hermes/SOUL.md'; HomeRel = 'AppData/Local/hermes/SOUL.md'; BlockId = 'hermes/SOUL.md' }
     )
 
     # ===========================================================================
@@ -187,11 +194,11 @@ try {
         Set-File -Path (Join-Path $th $target.HomeRel) -Content 'same'
         $r = Invoke-Script -Script $statusScript -ScriptArgs @('-RepoRoot', $tr, '-HomeRoot', $th, '-Platform', $target.Platform, '-Json')
         $rows = $r.Out | ConvertFrom-Json
-        $row = $rows | Where-Object { $_.Item -eq 'AGENTS.md' }
+        $row = $rows | Where-Object { $_.Item -eq $target.Item }
         Assert ($row.Status -eq 'differs' -and $row.Detail -eq 'managed block missing; pull would add it') "status: identical $($target.Platform) content still needs its managed block"
         Set-File -Path (Join-Path $th $target.HomeRel) -Content "<!-- BEGIN AI-AGENT-DOTFILES: $($target.BlockId) -->`nsame`n<!-- END AI-AGENT-DOTFILES: $($target.BlockId) -->`n"
         $r = Invoke-Script -Script $statusScript -ScriptArgs @('-RepoRoot', $tr, '-HomeRoot', $th, '-Platform', $target.Platform, '-Json')
-        $row = ($r.Out | ConvertFrom-Json) | Where-Object { $_.Item -eq 'AGENTS.md' }
+        $row = ($r.Out | ConvertFrom-Json) | Where-Object { $_.Item -eq $target.Item }
         Assert ($row.Status -eq 'in-sync' -and $row.Detail -eq 'managed block') "status: a matching $($target.Platform) managed block is in sync"
         Assert ($r.Out.TrimStart().StartsWith('[') -and @($rows).Count -eq 1) "status: one managed $($target.Platform) item still emits a JSON array"
     }
@@ -226,7 +233,7 @@ try {
         Set-File -Path $homeAgents -Content "# Managed`n`nRule v1.`n"
         $beforeHash = (Get-FileHash -LiteralPath $homeAgents).Hash
         $r = Invoke-Script -Script $pullScript -ScriptArgs @('-RepoRoot', $tr, '-HomeRoot', $th, '-Platform', $target.Platform)
-        Assert ($r.Code -eq 0 -and $r.Out -match "update\s+$([regex]::Escape($target.Platform))/AGENTS\.md" -and $r.Out -match 'managed block.*content outside it is preserved' -and (Get-FileHash -LiteralPath $homeAgents).Hash -eq $beforeHash) "pull: $($target.Platform) dry-run plans managed-block migration without writing"
+        Assert ($r.Code -eq 0 -and $r.Out -match "update\s+$([regex]::Escape($target.Platform))/$([regex]::Escape($target.Item))" -and $r.Out -match 'managed block.*content outside it is preserved' -and (Get-FileHash -LiteralPath $homeAgents).Hash -eq $beforeHash) "pull: $($target.Platform) dry-run plans managed-block migration without writing"
         $r = Invoke-Script -Script $pullScript -ScriptArgs @('-RepoRoot', $tr, '-HomeRoot', $th, '-Platform', $target.Platform, '-BackupRoot', $bk, '-Apply', '-SkipSecretScan')
         $text = Get-Content -Raw -LiteralPath $homeAgents
         Assert ($r.Code -eq 0 -and $text -match "BEGIN AI-AGENT-DOTFILES: $([regex]::Escape($target.BlockId))" -and $text -match 'Rule v1' -and $text -match "END AI-AGENT-DOTFILES: $([regex]::Escape($target.BlockId))") "pull: $($target.Platform) equal legacy content is wrapped in the managed block"
@@ -236,7 +243,7 @@ try {
         $text = Get-Content -Raw -LiteralPath $homeAgents
         Assert ($r.Code -eq 0 -and $text -match 'Rule v2' -and $text -notmatch 'Rule v1' -and $text -match '## Personal' -and $text -match 'Mine') "pull: $($target.Platform) updates only the managed block and preserves personal content"
         $r = Invoke-Script -Script $statusScript -ScriptArgs @('-RepoRoot', $tr, '-HomeRoot', $th, '-Platform', $target.Platform, '-Json')
-        $row = ($r.Out | ConvertFrom-Json) | Where-Object { $_.Item -eq 'AGENTS.md' }
+        $row = ($r.Out | ConvertFrom-Json) | Where-Object { $_.Item -eq $target.Item }
         Assert ($r.Code -eq 0 -and $row.Status -eq 'in-sync' -and $row.Detail -eq 'managed block') "status: the merged $($target.Platform) file is in sync"
 
         $tr = New-TempRepo -Name "pull-$slug-no-marker-repo"
@@ -646,6 +653,168 @@ if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
     $r = Invoke-Script -Script $pushScript -ScriptArgs @('-RepoRoot', $trRev, '-HomeRoot', $thRev, '-BackupRoot', $bkRev, '-Apply')
     Assert ($r.Code -ne 0 -and ((Get-Content -Raw -LiteralPath (Join-Path $trRev 'codex/prompts/existing.md')) -ceq 'repo original') -and (-not (Test-Path -LiteralPath (Join-Path $trRev 'codex/prompts/added.md')))) 'push: Restore-Plan restores updated file and removes added file on gate failure'
 
+    # ===========================================================================
+    Write-Host "`n[Hermes SOUL.md config-sync]" -ForegroundColor Cyan
+    # ===========================================================================
+    # 1. Real repository hermes/SOUL.md format & markers
+    $realHermesSoulPath = Join-Path $RepoRoot 'hermes/SOUL.md'
+    Assert (Test-Path -LiteralPath $realHermesSoulPath -PathType Leaf) 'hermes/SOUL.md exists in repository'
+    $realSoulBytes = [IO.File]::ReadAllBytes($realHermesSoulPath)
+    $hasBom = ($realSoulBytes.Length -ge 3 -and $realSoulBytes[0] -eq 0xEF -and $realSoulBytes[1] -eq 0xBB -and $realSoulBytes[2] -eq 0xBF)
+    Assert (-not $hasBom) 'hermes/SOUL.md is UTF-8 without BOM'
+    $realSoulText = [IO.File]::ReadAllText($realHermesSoulPath)
+    Assert (-not $realSoulText.Contains("`r`n")) 'hermes/SOUL.md uses LF line endings'
+    Assert ($realSoulText -notmatch '<!--\s*(?:BEGIN|END) AI-AGENT-DOTFILES:') 'hermes/SOUL.md contains no managed block markers'
+    foreach ($marker in @('## 编码与验证', '## 执行与沟通', '## 修改、验证与提交', '## 工作区与安全', '停止条件', '小步提交', '密钥与凭据永不入库', '严禁静默降级')) {
+        Assert ($realSoulText.Contains($marker)) "hermes/SOUL.md contains shared guardrail '$marker'"
+    }
+
+    # 2. Not-installed Hermes status (exit 0), pull refusal (no dir created), and push clean skip (exit 0)
+    $trH = New-TempRepo -Name 'hermes-not-installed-repo'
+    $thH = Join-Path $work 'hermes-not-installed-home'
+    $bkH = Join-Path $work 'hermes-not-installed-backup'
+    Set-File -Path (Join-Path $trH 'hermes/SOUL.md') -Content "# Hermes Repo Rules`n"
+    $hermesDefaultDir = Join-Path $thH 'AppData/Local/hermes'
+    $r = Invoke-Script -Script $statusScript -ScriptArgs @('-RepoRoot', $trH, '-HomeRoot', $thH, '-Platform', 'Hermes', '-Json')
+    $rows = @($r.Out | ConvertFrom-Json)
+    Assert ($r.Code -eq 0 -and $rows.Count -eq 1 -and $rows[0].Platform -eq 'Hermes' -and $rows[0].Item -eq 'SOUL.md' -and $rows[0].Status -eq 'not-installed' -and $rows[0].Detail -eq 'Hermes default home not found') 'hermes: not-installed status exits 0 with not-installed row'
+    $rText = Invoke-Script -Script $statusScript -ScriptArgs @('-RepoRoot', $trH, '-HomeRoot', $thH, '-Platform', 'Hermes')
+    Assert ($rText.Code -eq 0 -and $rText.Out -match 'not-installed') 'hermes: not-installed table output exits 0'
+    $rPull = Invoke-Script -Script $pullScript -ScriptArgs @('-RepoRoot', $trH, '-HomeRoot', $thH, '-Platform', 'Hermes', '-BackupRoot', $bkH, '-Apply', '-SkipSecretScan')
+    Assert ($rPull.Code -ne 0 -and $rPull.Out -match 'Hermes is not installed at default home' -and -not (Test-Path -LiteralPath $hermesDefaultDir)) 'hermes: pull refuses when default home is absent and creates no directory'
+    $rPush = Invoke-Script -Script $pushScript -ScriptArgs @('-RepoRoot', $trH, '-HomeRoot', $thH, '-Platform', 'Hermes', '-BackupRoot', $bkH)
+    Assert ($rPush.Code -eq 0 -and $rPush.Out -match 'Nothing to capture') 'hermes: push skips cleanly when Hermes is not installed'
+
+    # 3. Blocked guards: HERMES_HOME override, HERMES_DATA_DIR_SUFFIX, non-default active_profile,
+    #    directory active_profile, file root, and reparse point.
+    $trBlock = New-TempRepo -Name 'hermes-blocked-repo'
+    $thBlock = Join-Path $work 'hermes-blocked-home'
+    $bkBlock = Join-Path $work 'hermes-blocked-backup'
+    $hermesBlockDir = Join-Path $thBlock 'AppData/Local/hermes'
+    [IO.Directory]::CreateDirectory($hermesBlockDir) | Out-Null
+    Set-File -Path (Join-Path $trBlock 'hermes/SOUL.md') -Content "# Hermes Rules`n"
+    Set-File -Path (Join-Path $hermesBlockDir 'SOUL.md') -Content "<!-- BEGIN AI-AGENT-DOTFILES: hermes/SOUL.md -->`n# Hermes Live`n<!-- END AI-AGENT-DOTFILES: hermes/SOUL.md -->`n"
+
+    # 3a. HERMES_HOME override pointing elsewhere
+    try {
+        $env:HERMES_HOME = Join-Path $work 'other-hermes-home'
+        $rS = Invoke-Script -Script $statusScript -ScriptArgs @('-RepoRoot', $trBlock, '-HomeRoot', $thBlock, '-Platform', 'Hermes', '-Json')
+        $rows = @($rS.Out | ConvertFrom-Json)
+        Assert ($rS.Code -eq 0 -and $rows.Count -eq 1 -and $rows[0].Status -eq 'blocked' -and $rows[0].Detail -eq 'hermes-home-override-unsupported') 'hermes: HERMES_HOME override reports blocked in status'
+        $rP = Invoke-Script -Script $pullScript -ScriptArgs @('-RepoRoot', $trBlock, '-HomeRoot', $thBlock, '-Platform', 'Hermes', '-BackupRoot', $bkBlock, '-Apply', '-SkipSecretScan')
+        Assert ($rP.Code -ne 0 -and $rP.Out -match 'Hermes config pull blocked \(hermes-home-override-unsupported\)') 'hermes: HERMES_HOME override blocks pull'
+        $rU = Invoke-Script -Script $pushScript -ScriptArgs @('-RepoRoot', $trBlock, '-HomeRoot', $thBlock, '-Platform', 'Hermes', '-BackupRoot', $bkBlock, '-Apply', '-SkipSecretScan')
+        Assert ($rU.Code -ne 0 -and $rU.Out -match 'Hermes config push blocked \(hermes-home-override-unsupported\)') 'hermes: HERMES_HOME override blocks push'
+
+        # Matching HERMES_HOME equals default path -> allowed
+        $env:HERMES_HOME = ($hermesBlockDir + '\').Replace('\', '/')
+        $stateMatch = Get-ConfigHermesRootState -HomeRoot $thBlock
+        Assert ($stateMatch.Installed -and -not $stateMatch.Blocked) 'hermes: HERMES_HOME matching default path is allowed'
+    }
+    finally {
+        Remove-Item Env:HERMES_HOME -ErrorAction SilentlyContinue
+    }
+
+    # 3b. HERMES_DATA_DIR_SUFFIX
+    try {
+        $env:HERMES_DATA_DIR_SUFFIX = 'dev'
+        $rS = Invoke-Script -Script $statusScript -ScriptArgs @('-RepoRoot', $trBlock, '-HomeRoot', $thBlock, '-Platform', 'Hermes', '-Json')
+        $rows = @($rS.Out | ConvertFrom-Json)
+        Assert ($rS.Code -eq 0 -and $rows[0].Status -eq 'blocked' -and $rows[0].Detail -eq 'hermes-home-override-unsupported') 'hermes: HERMES_DATA_DIR_SUFFIX reports blocked in status'
+        $rP = Invoke-Script -Script $pullScript -ScriptArgs @('-RepoRoot', $trBlock, '-HomeRoot', $thBlock, '-Platform', 'Hermes', '-BackupRoot', $bkBlock, '-Apply', '-SkipSecretScan')
+        Assert ($rP.Code -ne 0 -and $rP.Out -match 'Hermes config pull blocked \(hermes-home-override-unsupported\)') 'hermes: HERMES_DATA_DIR_SUFFIX blocks pull'
+        $rU = Invoke-Script -Script $pushScript -ScriptArgs @('-RepoRoot', $trBlock, '-HomeRoot', $thBlock, '-Platform', 'Hermes', '-BackupRoot', $bkBlock, '-Apply', '-SkipSecretScan')
+        Assert ($rU.Code -ne 0 -and $rU.Out -match 'Hermes config push blocked \(hermes-home-override-unsupported\)') 'hermes: HERMES_DATA_DIR_SUFFIX blocks push'
+    }
+    finally {
+        Remove-Item Env:HERMES_DATA_DIR_SUFFIX -ErrorAction SilentlyContinue
+    }
+
+    # 3c. Non-default active_profile, directory active_profile, and 'default' active_profile
+    $activeProfileFile = Join-Path $hermesBlockDir 'active_profile'
+    Set-File -Path $activeProfileFile -Content "work`n"
+    $rS = Invoke-Script -Script $statusScript -ScriptArgs @('-RepoRoot', $trBlock, '-HomeRoot', $thBlock, '-Platform', 'Hermes', '-Json')
+    $rows = @($rS.Out | ConvertFrom-Json)
+    Assert ($rS.Code -eq 0 -and $rows[0].Status -eq 'blocked' -and $rows[0].Detail -eq 'hermes-non-default-profile-unsupported') 'hermes: non-default active_profile reports blocked in status'
+    $rP = Invoke-Script -Script $pullScript -ScriptArgs @('-RepoRoot', $trBlock, '-HomeRoot', $thBlock, '-Platform', 'Hermes', '-BackupRoot', $bkBlock, '-Apply', '-SkipSecretScan')
+    Assert ($rP.Code -ne 0 -and $rP.Out -match 'Hermes config pull blocked \(hermes-non-default-profile-unsupported\)') 'hermes: non-default active_profile blocks pull'
+    $rU = Invoke-Script -Script $pushScript -ScriptArgs @('-RepoRoot', $trBlock, '-HomeRoot', $thBlock, '-Platform', 'Hermes', '-BackupRoot', $bkBlock, '-Apply', '-SkipSecretScan')
+    Assert ($rU.Code -ne 0 -and $rU.Out -match 'Hermes config push blocked \(hermes-non-default-profile-unsupported\)') 'hermes: non-default active_profile blocks push'
+
+    Set-File -Path $activeProfileFile -Content "DEFAULT`n"
+    $stateDefaultProfile = Get-ConfigHermesRootState -HomeRoot $thBlock
+    Assert ($stateDefaultProfile.Installed -and -not $stateDefaultProfile.Blocked) 'hermes: default active_profile is allowed'
+
+    Remove-Item -LiteralPath $activeProfileFile -Force
+    New-Item -ItemType Directory -Path $activeProfileFile -Force | Out-Null
+    $stateDirProfile = Get-ConfigHermesRootState -HomeRoot $thBlock
+    Assert ($stateDirProfile.Blocked -and $stateDirProfile.Reason -eq 'hermes-active-profile-invalid') 'hermes: directory active_profile is blocked'
+
+    # 3d. Leaf file hermes root and junction hermes root
+    $thLeaf = Join-Path $work 'hermes-leaf-home'
+    Set-File -Path (Join-Path $thLeaf 'AppData/Local/hermes') -Content 'not a directory'
+    $stateLeaf = Get-ConfigHermesRootState -HomeRoot $thLeaf
+    Assert ($stateLeaf.Blocked -and $stateLeaf.Reason -eq 'hermes-root-not-directory') 'hermes: file at default root is blocked'
+
+    $thJunc = Join-Path $work 'hermes-junc-home'
+    $juncTarget = Join-Path $work 'hermes-junc-target'
+    [IO.Directory]::CreateDirectory($juncTarget) | Out-Null
+    [IO.Directory]::CreateDirectory((Join-Path $thJunc 'AppData/Local')) | Out-Null
+    New-Item -ItemType Junction -Path (Join-Path $thJunc 'AppData/Local/hermes') -Target $juncTarget | Out-Null
+    try {
+        $stateJunc = Get-ConfigHermesRootState -HomeRoot $thJunc
+        Assert ($stateJunc.Blocked -and $stateJunc.Reason -eq 'reparse-point-blocked') 'hermes: reparse point at default root is blocked'
+    }
+    finally {
+        [IO.Directory]::Delete((Join-Path $thJunc 'AppData/Local/hermes'))
+    }
+
+    # 4. Managed-block pull preserving outside persona + push capturing only block body + exclusions
+    $trExcl = New-TempRepo -Name 'hermes-excl-repo'
+    $thExcl = Join-Path $work 'hermes-excl-home'
+    $bkExcl = Join-Path $work 'hermes-excl-backup'
+    $hermesExclDir = Join-Path $thExcl 'AppData/Local/hermes'
+    [IO.Directory]::CreateDirectory($hermesExclDir) | Out-Null
+    Set-File -Path (Join-Path $trExcl 'hermes/SOUL.md') -Content "# Hermes Managed v1`n"
+    Set-File -Path (Join-Path $trExcl 'hermes/config.yaml') -Content "repo_yaml: should_not_pull`n"
+    Set-File -Path (Join-Path $hermesExclDir 'SOUL.md') -Content (@(
+        '# My Custom Persona Top'
+        ''
+        '<!-- BEGIN AI-AGENT-DOTFILES: hermes/SOUL.md -->'
+        '# Hermes Managed v0'
+        '<!-- END AI-AGENT-DOTFILES: hermes/SOUL.md -->'
+        ''
+        '# My Custom Persona Bottom'
+    ) -join "`n")
+    Set-File -Path (Join-Path $hermesExclDir 'config.yaml') -Content "api_key: local-only`n"
+    Set-File -Path (Join-Path $hermesExclDir '.env') -Content "SECRET_KEY=local-only`n"
+    Set-File -Path (Join-Path $hermesExclDir 'auth.json') -Content '{"token":"local-only"}'
+
+    $hermesTarget = Get-ConfigTargets -RepoRoot $trExcl -HomeRoot $thExcl -Platform @('Hermes') -ItemKeys @('PushItems', 'PullItems')
+    Assert (($hermesTarget.Items -join ',') -eq 'SOUL.md') 'hermes: whitelist selects only SOUL.md'
+    foreach ($excludedName in @('config.yaml', '.env', 'auth.json', 'vault', 'memories', 'sessions', 'active_profile', 'state.db')) {
+        Assert (Test-Excluded -RelativePath $excludedName -Patterns $hermesTarget.Excluded) "hermes: excludes $excludedName"
+    }
+
+    $rPull = Invoke-Script -Script $pullScript -ScriptArgs @('-RepoRoot', $trExcl, '-HomeRoot', $thExcl, '-Platform', 'Hermes', '-BackupRoot', $bkExcl, '-Apply', '-SkipSecretScan')
+    $pulledSoul = [IO.File]::ReadAllText((Join-Path $hermesExclDir 'SOUL.md'))
+    Assert ($rPull.Code -eq 0 -and $pulledSoul -match '# My Custom Persona Top' -and $pulledSoul -match '# My Custom Persona Bottom' -and $pulledSoul -match '# Hermes Managed v1' -and $pulledSoul -notmatch '# Hermes Managed v0') 'hermes: pull updates only managed block and preserves outside persona'
+    Assert (([IO.File]::ReadAllText((Join-Path $hermesExclDir 'config.yaml'))) -eq "api_key: local-only`n" -and ([IO.File]::ReadAllText((Join-Path $hermesExclDir '.env'))) -eq "SECRET_KEY=local-only`n" -and ([IO.File]::ReadAllText((Join-Path $hermesExclDir 'auth.json'))) -eq '{"token":"local-only"}') 'hermes: pull leaves config.yaml, .env, and auth.json untouched'
+
+    [IO.File]::WriteAllText((Join-Path $hermesExclDir 'SOUL.md'), (@(
+        '# My Custom Persona Top'
+        ''
+        '<!-- BEGIN AI-AGENT-DOTFILES: hermes/SOUL.md -->'
+        '# Hermes Managed v2'
+        '<!-- END AI-AGENT-DOTFILES: hermes/SOUL.md -->'
+        ''
+        '# My Custom Persona Bottom'
+    ) -join "`n"), [Text.UTF8Encoding]::new($false))
+    $rPush = Invoke-Script -Script $pushScript -ScriptArgs @('-RepoRoot', $trExcl, '-HomeRoot', $thExcl, '-Platform', 'Hermes', '-BackupRoot', $bkExcl, '-Apply', '-SkipSecretScan')
+    $capturedSoul = [IO.File]::ReadAllText((Join-Path $trExcl 'hermes/SOUL.md'))
+    Assert ($rPush.Code -eq 0 -and $capturedSoul.TrimEnd("`r", "`n") -eq '# Hermes Managed v2' -and $capturedSoul -notmatch 'Custom Persona|AI-AGENT-DOTFILES') 'hermes: push captures only managed block body'
+    Assert (-not (Test-Path -LiteralPath (Join-Path $trExcl 'hermes/.env')) -and -not (Test-Path -LiteralPath (Join-Path $trExcl 'hermes/auth.json')) -and ([IO.File]::ReadAllText((Join-Path $trExcl 'hermes/config.yaml'))) -eq "repo_yaml: should_not_pull`n") 'hermes: push never captures config.yaml, .env, or auth.json'
+
     if ($script:fail -eq 0) { $outcome = 'Passed' }
 }
 catch {
@@ -655,6 +824,10 @@ catch {
     Write-Host ('Fixture failure: ' + $exceptionType) -ForegroundColor Red
 }
 finally {
+    if ($null -eq $savedHermesHome) { Remove-Item Env:HERMES_HOME -ErrorAction SilentlyContinue }
+    else { $env:HERMES_HOME = $savedHermesHome }
+    if ($null -eq $savedHermesSuffix) { Remove-Item Env:HERMES_DATA_DIR_SUFFIX -ErrorAction SilentlyContinue }
+    else { $env:HERMES_DATA_DIR_SUFFIX = $savedHermesSuffix }
     # The fixture calls only synchronous children. A forced timeout skips this block;
     # its owning parent records the exact workspace without assuming descendants stopped.
     Complete-ConfigSyncTestWork -RepoRoot $RepoRoot -WorkRoot $work -RunId $WorkspaceRunId `

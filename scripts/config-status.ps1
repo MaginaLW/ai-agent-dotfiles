@@ -17,7 +17,7 @@
     Home directory. Defaults to $env:USERPROFILE.
 
 .PARAMETER Platform
-    One or more of Codex, Antigravity. Defaults to Codex.
+    One or more of Codex, Antigravity, Hermes. Defaults to Codex.
 
 .PARAMETER Json
     Emit the results as a JSON array instead of the table.
@@ -121,6 +121,31 @@ function Compare-ConfigItem {
 
 $results = [System.Collections.Generic.List[object]]::new()
 foreach ($target in (Get-ConfigTargets -RepoRoot $RepoRoot -HomeRoot $HomeRoot -Platform $Platform -ItemKeys 'PushItems', 'PullItems')) {
+    if ($target.Name -ceq 'Hermes') {
+        $hermesState = Get-ConfigHermesRootState -HomeRoot $HomeRoot
+        if ($hermesState.Blocked) {
+            foreach ($item in $target.Items) {
+                $results.Add([pscustomobject] @{
+                        Platform = $target.Name
+                        Item     = $item
+                        Status   = 'blocked'
+                        Detail   = $hermesState.Reason
+                    })
+            }
+            continue
+        }
+        if (-not $hermesState.Installed) {
+            foreach ($item in $target.Items) {
+                $results.Add([pscustomobject] @{
+                        Platform = $target.Name
+                        Item     = $item
+                        Status   = 'not-installed'
+                        Detail   = 'Hermes default home not found'
+                    })
+            }
+            continue
+        }
+    }
     foreach ($item in $target.Items) {
         $cmp = Compare-ConfigItem `
             -RepoPath (Join-Path $target.RepoRoot $item) `
@@ -150,10 +175,12 @@ if ($results.Count -eq 0) {
 }
 else {
     $colorFor = @{
-        'in-sync'   = 'DarkGray'
-        'differs'   = 'Yellow'
-        'repo-only' = 'Green'
-        'home-only' = 'Magenta'
+        'in-sync'       = 'DarkGray'
+        'differs'       = 'Yellow'
+        'repo-only'     = 'Green'
+        'home-only'     = 'Magenta'
+        'not-installed' = 'DarkGray'
+        'blocked'       = 'Red'
     }
     foreach ($row in $results) {
         $label = '{0,-9} {1,-9} {2}' -f $row.Platform, $row.Status, $row.Item

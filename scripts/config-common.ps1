@@ -78,6 +78,7 @@ function Resolve-ConfigPlatforms {
     $canonical = @{
         codex       = 'Codex'
         antigravity = 'Antigravity'
+        hermes      = 'Hermes'
     }
     $selected = [System.Collections.Generic.List[string]]::new()
     $seen = [System.Collections.Generic.HashSet[string]]::new([StringComparer]::Ordinal)
@@ -87,14 +88,14 @@ function Resolve-ConfigPlatforms {
             if ([string]::IsNullOrEmpty($trimmed)) { continue }
             $key = $trimmed.ToLowerInvariant()
             if (-not $canonical.ContainsKey($key)) {
-                throw "Unsupported config platform '$trimmed'. Expected Codex or Antigravity."
+                throw "Unsupported config platform '$trimmed'. Expected Codex, Antigravity, or Hermes."
             }
             $name = $canonical[$key]
             if ($seen.Add($name)) { $selected.Add($name) }
         }
     }
     if ($selected.Count -eq 0 -and @($Values).Count -gt 0) {
-        throw "Config -Platform requires at least one platform name. Expected Codex or Antigravity."
+        throw "Config -Platform requires at least one platform name. Expected Codex, Antigravity, or Hermes."
     }
     return @($selected)
 }
@@ -168,6 +169,11 @@ $script:ManagedAgentsBlocks = @{
         BlockId = 'antigravity/AGENTS.md'
         Label   = 'Antigravity/AGENTS.md'
     }
+    Hermes = @{
+        Item    = 'SOUL.md'
+        BlockId = 'hermes/SOUL.md'
+        Label   = 'Hermes/SOUL.md'
+    }
 }
 
 function Get-ManagedAgentsBlockSpec {
@@ -179,6 +185,131 @@ function Get-ManagedAgentsBlockSpec {
     $spec = $script:ManagedAgentsBlocks[$Platform]
     if ($spec.Item -cne $Item) { return $null }
     return $spec
+}
+
+function Get-ConfigHermesRootState {
+    param([Parameter(Mandatory)] [string] $HomeRoot)
+
+    $defaultPath = Join-Path $HomeRoot 'AppData\Local\hermes'
+    if (-not [string]::IsNullOrWhiteSpace($env:HERMES_DATA_DIR_SUFFIX)) {
+        return [pscustomobject]@{
+            Path      = $defaultPath
+            Installed = $false
+            Blocked   = $true
+            Reason    = 'hermes-home-override-unsupported'
+        }
+    }
+    if (-not [string]::IsNullOrWhiteSpace($env:HERMES_HOME)) {
+        $matchesDefault = $false
+        try {
+            $provider = $null
+            $drive = $null
+            $resolvedDefault = $ExecutionContext.SessionState.Path.GetUnresolvedProviderPathFromPSPath($defaultPath, [ref]$provider, [ref]$drive)
+            $defaultProvider = $provider
+            $provider = $null
+            $drive = $null
+            $resolvedOverride = $ExecutionContext.SessionState.Path.GetUnresolvedProviderPathFromPSPath($env:HERMES_HOME, [ref]$provider, [ref]$drive)
+            if ($null -ne $defaultProvider -and $defaultProvider.Name -ceq 'FileSystem' -and
+                $null -ne $provider -and $provider.Name -ceq 'FileSystem' -and
+                [IO.Path]::IsPathRooted($env:HERMES_HOME)) {
+                $normalizedDefault = [IO.Path]::GetFullPath($resolvedDefault).TrimEnd('\', '/')
+                $normalizedOverride = [IO.Path]::GetFullPath($resolvedOverride).TrimEnd('\', '/')
+                if ($normalizedOverride -ieq $normalizedDefault) {
+                    $matchesDefault = $true
+                }
+            }
+        }
+        catch {
+            $matchesDefault = $false
+        }
+        if (-not $matchesDefault) {
+            return [pscustomobject]@{
+                Path      = $defaultPath
+                Installed = $false
+                Blocked   = $true
+                Reason    = 'hermes-home-override-unsupported'
+            }
+        }
+    }
+
+    try {
+        Assert-PlainPathNoReparse -Path $defaultPath -AllowMissing
+    }
+    catch {
+        return [pscustomobject]@{
+            Path      = $defaultPath
+            Installed = $false
+            Blocked   = $true
+            Reason    = 'reparse-point-blocked'
+        }
+    }
+
+    if (Test-Path -LiteralPath $defaultPath -PathType Leaf) {
+        return [pscustomobject]@{
+            Path      = $defaultPath
+            Installed = $false
+            Blocked   = $true
+            Reason    = 'hermes-root-not-directory'
+        }
+    }
+    if (-not (Test-Path -LiteralPath $defaultPath -PathType Container)) {
+        return [pscustomobject]@{
+            Path      = $defaultPath
+            Installed = $false
+            Blocked   = $false
+            Reason    = 'hermes-not-installed'
+        }
+    }
+
+    $activeProfilePath = Join-Path $defaultPath 'active_profile'
+    try {
+        Assert-PlainPathNoReparse -Path $activeProfilePath -AllowMissing
+    }
+    catch {
+        return [pscustomobject]@{
+            Path      = $defaultPath
+            Installed = $false
+            Blocked   = $true
+            Reason    = 'reparse-point-blocked'
+        }
+    }
+
+    if (Test-Path -LiteralPath $activeProfilePath -PathType Container) {
+        return [pscustomobject]@{
+            Path      = $defaultPath
+            Installed = $false
+            Blocked   = $true
+            Reason    = 'hermes-active-profile-invalid'
+        }
+    }
+    if (Test-Path -LiteralPath $activeProfilePath -PathType Leaf) {
+        try {
+            $profileName = ([IO.File]::ReadAllText($activeProfilePath)).Trim()
+        }
+        catch {
+            return [pscustomobject]@{
+                Path      = $defaultPath
+                Installed = $false
+                Blocked   = $true
+                Reason    = 'hermes-active-profile-invalid'
+            }
+        }
+        if ((-not [string]::IsNullOrEmpty($profileName)) -and ($profileName -ine 'default')) {
+            return [pscustomobject]@{
+                Path      = $defaultPath
+                Installed = $false
+                Blocked   = $true
+                Reason    = 'hermes-non-default-profile-unsupported'
+            }
+        }
+    }
+
+    return [pscustomobject]@{
+        Path      = $defaultPath
+        Installed = $true
+        Blocked   = $false
+        Reason    = $null
+    }
 }
 
 function Get-JsonObjectMap {

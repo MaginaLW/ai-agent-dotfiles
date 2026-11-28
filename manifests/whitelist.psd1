@@ -48,6 +48,52 @@
         )
     }
 
+    Hermes = @{
+        HomeRelativeRoot = 'AppData/Local/hermes'
+        RepoRelativeRoot = 'hermes'
+        # config.yaml, auth.json, vault, memories, sessions, skills, plugins, runtime state,
+        # databases and profile selectors stay outside config-sync scope.
+        PushItems = @(
+            'SOUL.md'
+        )
+        PullItems = @(
+            'SOUL.md'
+        )
+        ExcludedItems = @(
+            'config.yaml'
+            'auth.json'
+            'vault'
+            'memories'
+            'sessions'
+            'skills'
+            'plugins'
+            'desktop-plugins'
+            'logs'
+            'cache'
+            'audio_cache'
+            'image_cache'
+            'state'
+            'tools'
+            'cron'
+            'hooks'
+            'kanban'
+            'pairing'
+            'pending'
+            'pending_messages'
+            'pets'
+            'platforms'
+            'runtime'
+            'telemetry'
+            '*.db'
+            '*.db-*'
+            '*.lock'
+            '*.pid'
+            'ui-preferences.json'
+            'active_profile'
+            'profiles'
+        )
+    }
+
     CommonExcludedItems = @(
         '.env'
         '.env.*'

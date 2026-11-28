@@ -6,12 +6,14 @@
 
 .DESCRIPTION
     Plans an add (absent in the repo) or update (content differs; home wins) for every
-    managed file. Codex reads from ~/.codex and Antigravity reads from ~/.gemini/config.
+    managed file. Codex reads from ~/.codex, Antigravity reads from ~/.gemini/config, and
+    Hermes reads from AppData/Local/hermes.
     Directories are copied file-by-file and never pruned: repo-only files stay
     untouched. ExcludedItems and CommonExcludedItems are never captured.
 
-    When Codex or Antigravity AGENTS.md contains the config-sync managed block, only that
-    block's content is captured; personal content outside the block stays local.
+    When Codex, Antigravity, or Hermes managed instructions (AGENTS.md or SOUL.md)
+    contain the config-sync managed block, only that block's content is captured;
+    personal content outside the block stays local.
 
     -Apply stages every repo file it overwrites to
     <BackupRoot>\config-push-stage-<timestamp>\, writes the capture, then runs two
@@ -30,7 +32,7 @@
     Home directory. Defaults to $env:USERPROFILE.
 
 .PARAMETER Platform
-    One or more of Codex, Antigravity. Defaults to Codex.
+    One or more of Codex, Antigravity, Hermes. Defaults to Codex.
 
 .PARAMETER BackupRoot
     Root for the revert stage. Defaults to $env:USERPROFILE\.ai-agent-dotfiles-backups.
@@ -118,6 +120,15 @@ function Restore-Plan {
 function Get-ConfigPushPlan {
     $plan = [System.Collections.Generic.List[object]]::new()
     foreach ($target in (Get-ConfigTargets -RepoRoot $RepoRoot -HomeRoot $HomeRoot -Platform $Platform -ItemKeys 'PushItems')) {
+        if ($target.Name -ceq 'Hermes') {
+            $hermesState = Get-ConfigHermesRootState -HomeRoot $HomeRoot
+            if ($hermesState.Blocked) {
+                throw "Hermes config push blocked ($($hermesState.Reason))."
+            }
+            if (-not $hermesState.Installed) {
+                continue
+            }
+        }
         foreach ($item in $target.Items) {
             $homeItem = Join-Path $target.HomeRoot $item
             $repoItem = Join-Path $target.RepoRoot $item

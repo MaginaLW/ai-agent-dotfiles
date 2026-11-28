@@ -6,11 +6,13 @@
 
 .DESCRIPTION
     Plans an add (absent in home) or update (content differs; repo wins) for every
-    managed file. Codex writes to ~/.codex and Antigravity writes to ~/.gemini/config.
+    managed file. Codex writes to ~/.codex, Antigravity writes to ~/.gemini/config, and
+    Hermes writes to AppData/Local/hermes.
     Directories are copied file-by-file and never pruned:
     home-only files stay untouched. ExcludedItems and CommonExcludedItems are skipped.
 
-    Each platform's AGENTS.md uses one marked managed block and preserves content outside it.
+    Each platform's managed instructions file (AGENTS.md or SOUL.md) uses one marked
+    managed block and preserves content outside it.
 
     -Apply runs the secret scan first, then backs up every home file it overwrites to
     <BackupRoot>\config-backup-<timestamp>\ before copying. A caught copy failure
@@ -28,7 +30,7 @@
     Home directory. Defaults to $env:USERPROFILE.
 
 .PARAMETER Platform
-    One or more of Codex, Antigravity. Defaults to Codex.
+    One or more of Codex, Antigravity, Hermes. Defaults to Codex.
 
 .PARAMETER BackupRoot
     Root for the pre-overwrite backup. Defaults to
@@ -65,12 +67,22 @@ $BackupRoot = Resolve-ConfigBackupRoot -RepoRoot $RepoRoot -BackupRoot $BackupRo
 function Get-ConfigPullPlan {
     $plan = [System.Collections.Generic.List[object]]::new()
     foreach ($target in (Get-ConfigTargets -RepoRoot $RepoRoot -HomeRoot $HomeRoot -Platform $Platform -ItemKeys 'PullItems')) {
+        if ($target.Name -ceq 'Hermes') {
+            $hermesState = Get-ConfigHermesRootState -HomeRoot $HomeRoot
+            if ($hermesState.Blocked) {
+                throw "Hermes config pull blocked ($($hermesState.Reason))."
+            }
+            if (-not $hermesState.Installed) {
+                throw 'Hermes is not installed at default home (AppData/Local/hermes); refusing to create it.'
+            }
+        }
         foreach ($item in $target.Items) {
             $repoItem = Join-Path $target.RepoRoot $item
             $homeItem = Join-Path $target.HomeRoot $item
             if (-not (Test-Path -LiteralPath $repoItem)) { continue }
             $blockSpec = Get-ManagedAgentsBlockSpec -Platform $target.Name -Item $item
             if ($null -ne $blockSpec) {
+                Assert-PlainPathNoReparse -Path $homeItem -AllowMissing -MessagePrefix "$($blockSpec.Label) destination contains a reparse point"
                 if (-not (Test-Path -LiteralPath $repoItem -PathType Leaf)) { throw "$($blockSpec.Label) source is not a file." }
                 if (Test-Path -LiteralPath $homeItem -PathType Container) { throw "$($blockSpec.Label) destination is a directory." }
                 $homeExists = Test-Path -LiteralPath $homeItem -PathType Leaf
@@ -137,7 +149,7 @@ if ($Json) {
 }
 
 Write-Host "config-pull (repo -> $HomeRoot)  scope: $($Platform -join ', ')" -ForegroundColor Cyan
-foreach ($managedLabel in @('Codex/AGENTS.md', 'Antigravity/AGENTS.md')) {
+foreach ($managedLabel in @('Codex/AGENTS.md', 'Antigravity/AGENTS.md', 'Hermes/SOUL.md')) {
     if (@($plan | Where-Object { $_.Rel -eq $managedLabel }).Count -gt 0) {
         Write-Host "Only the managed block in $managedLabel will be updated; content outside it is preserved." -ForegroundColor Yellow
     }
