@@ -221,19 +221,27 @@ Assert-TestCondition (@($codexConfig.ExcludedItems) -contains 'config.toml') 'Co
 Assert-TestCondition ((@($codexConfig.PushItems) -notcontains 'config.toml') -and (@($codexConfig.PullItems) -notcontains 'config.toml')) 'Codex config.toml is not selected for push or pull'
 $antigravityConfig = $whitelistData.Antigravity
 Assert-TestCondition ((@($antigravityConfig.PushItems) -notcontains 'mcp_config.json') -and (@($antigravityConfig.PullItems) -notcontains 'mcp_config.json')) 'Antigravity mcp_config.json is not selected for push or pull'
+$hermesConfig = $whitelistData.Hermes
+Assert-TestCondition ($null -ne $hermesConfig) 'manifests/whitelist.psd1 declares Hermes'
+Assert-TestCondition (@($hermesConfig.ExcludedItems) -contains 'config.yaml') 'Hermes config.yaml is excluded from sync'
+Assert-TestCondition ((@($hermesConfig.PushItems) -notcontains 'config.yaml') -and (@($hermesConfig.PullItems) -notcontains 'config.yaml')) 'Hermes config.yaml is not selected for push or pull'
 Assert-TestCondition (-not $whitelistData.ContainsKey('ZCode')) 'retired ZCode platform is absent from manifests/whitelist.psd1'
 Assert-TestCondition (-not (Read-RepoText 'scripts/deploy.ps1').Contains('mcp-sync')) 'combined deploy.ps1 does not automatically project MCP servers'
+Assert-TestCondition (-not (Read-RepoText 'scripts/deploy.ps1').Contains('hermes-skills')) 'combined deploy.ps1 does not automatically deploy Hermes skills'
 
 . (Join-Path $RepoRoot 'scripts/mcp-sync.ps1')
 $mcpRegistry = Read-McpServerRegistry -RepoRoot $RepoRoot
-Assert-TestCondition (@($mcpRegistry.Servers | Where-Object { $_.Name -ceq 'blender' -and $_.Command -ceq 'uvx' }).Count -eq 1) 'harness-source/mcp/servers.psd1 passes schema validation and declares blender'
+$blenderEntries = @($mcpRegistry.Servers | Where-Object { $_.Name -ceq 'blender' -and $_.Command -ceq 'uvx' })
+Assert-TestCondition ($blenderEntries.Count -eq 1) 'harness-source/mcp/servers.psd1 passes schema validation and declares blender'
+Assert-TestCondition ((@($blenderEntries[0].Platforms) -ccontains 'Antigravity') -and (@($blenderEntries[0].Platforms) -ccontains 'Codex') -and (@($blenderEntries[0].Platforms) -ccontains 'Hermes')) 'blender MCP server targets Antigravity, Codex, and Hermes'
 
 # -----------------------------------------------------------------------------
-# Dual-host AGENTS.md shared-core parity and Antigravity plugin skills
+# Multi-host AGENTS.md / SOUL.md shared-core parity, Antigravity plugin, and Hermes skills
 # -----------------------------------------------------------------------------
-Write-Host '[dual-host AGENTS.md parity and Antigravity plugin skills]'
+Write-Host '[multi-host AGENTS.md / SOUL.md parity, Antigravity plugin, and Hermes skills]'
 $codexAgentsText = Read-RepoText 'codex/AGENTS.md'
 $antigravityAgentsText = Read-RepoText 'antigravity/AGENTS.md'
+$hermesSoulText = Read-RepoText 'hermes/SOUL.md'
 $sharedAgentsMarkers = @(
     '## 编码与验证',
     '## 执行与沟通',
@@ -247,7 +255,23 @@ $sharedAgentsMarkers = @(
 foreach ($marker in $sharedAgentsMarkers) {
     Assert-TestCondition ($codexAgentsText.Contains($marker)) "codex/AGENTS.md contains shared guardrail '$marker'"
     Assert-TestCondition ($antigravityAgentsText.Contains($marker)) "antigravity/AGENTS.md contains shared guardrail '$marker'"
+    Assert-TestCondition ($hermesSoulText.Contains($marker)) "hermes/SOUL.md contains shared guardrail '$marker'"
 }
+
+$hermesSkillsData = Import-PowerShellDataFile -LiteralPath (Join-Path $RepoRoot 'harness-source/hermes/skills.psd1')
+Assert-TestCondition ($hermesSkillsData.ContainsKey('SchemaVersion') -and ($hermesSkillsData.SchemaVersion -is [int]) -and ($hermesSkillsData.SchemaVersion -eq 1)) 'hermes/skills.psd1 declares SchemaVersion = 1'
+Assert-TestCondition ($hermesSkillsData.ContainsKey('Category') -and ($hermesSkillsData.Category -ceq 'ai-agent-dotfiles')) 'hermes/skills.psd1 declares Category = ai-agent-dotfiles'
+$rawHermesSkills = $hermesSkillsData.Skills
+Assert-TestCondition ($rawHermesSkills -is [array]) 'hermes/skills.psd1 declares Skills as an array'
+$hermesSkills = @($rawHermesSkills | ForEach-Object { [string] $_ })
+Assert-TestCondition (($hermesSkills.Count -ge 1) -and (@($hermesSkills | Where-Object { [string]::IsNullOrWhiteSpace($_) }).Count -eq 0)) 'hermes/skills.psd1 Skills has non-empty entries'
+$seenHermesSkills = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::OrdinalIgnoreCase)
+$duplicateHermesSkills = @($hermesSkills | Where-Object { -not $seenHermesSkills.Add($_) })
+Assert-TestCondition ($duplicateHermesSkills.Count -eq 0) 'hermes/skills.psd1 Skills has zero duplicates'
+foreach ($hermesSkill in $hermesSkills) {
+    Assert-TestCondition (Test-Path -LiteralPath (Join-Path $RepoRoot "skills-source/shared/$hermesSkill/SKILL.md") -PathType Leaf) "hermes/skills.psd1 skill '$hermesSkill' exists under skills-source/shared/"
+}
+Assert-TestCondition (($hermesSkills -notcontains 'systematic-debugging') -and ($hermesSkills -notcontains 'tool-scope')) 'hermes/skills.psd1 excludes systematic-debugging and tool-scope'
 
 $pluginsData = Import-PowerShellDataFile -LiteralPath (Join-Path $RepoRoot 'harness-source/antigravity/plugins.psd1')
 Assert-TestCondition ($pluginsData.ContainsKey('ManagedPlugin') -and ($pluginsData.ManagedPlugin -is [hashtable])) 'plugins.psd1 declares ManagedPlugin hashtable'

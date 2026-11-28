@@ -28,7 +28,7 @@ try {
     if ($output -notmatch 'Deploy blockers: 1' -or $output -notmatch 'Inspect both roots and decide' -or $output -notmatch 'Doctor result: PASS with warnings') { throw 'doctor did not distinguish a deployment blocker while preserving the warning/exit contract' }
     if ($output -match 'Zcode live root') { throw 'doctor still probed retired Zcode live root' }
     $coreScripts = @(
-        'agent-dotfiles.ps1', 'antigravity-plugins.ps1', 'mcp-sync.ps1',
+        'agent-dotfiles.ps1', 'antigravity-plugins.ps1', 'hermes-skills.ps1', 'mcp-sync.ps1',
         'config-status.ps1', 'config-pull.ps1', 'config-push.ps1',
         'deploy.ps1', 'deploy-skills.ps1', 'build-skills.ps1', 'dashboard.ps1', 'scan-secrets.ps1'
     )
@@ -84,7 +84,7 @@ try {
     Copy-Item -LiteralPath (Join-Path $RepoRoot 'scripts/repo-common.ps1') -Destination (Join-Path $cleanRepo 'scripts/repo-common.ps1')
 
     $dummyScripts = @(
-        'agent-dotfiles.ps1', 'antigravity-plugins.ps1', 'mcp-sync.ps1',
+        'agent-dotfiles.ps1', 'antigravity-plugins.ps1', 'hermes-skills.ps1', 'mcp-sync.ps1',
         'config-status.ps1', 'config-pull.ps1', 'config-push.ps1',
         'deploy.ps1', 'deploy-skills.ps1', 'build-skills.ps1', 'dashboard.ps1'
     )
@@ -107,6 +107,23 @@ try {
     if ($cleanOutput -notmatch 'Doctor result: PASS\r?\n?$') { throw "clean fixture did not report Doctor result: PASS: $cleanOutput" }
     if ($cleanOutput -match 'Doctor result: PASS with warnings') { throw "clean fixture unexpectedly reported warnings: $cleanOutput" }
     if ($cleanOutput -notmatch 'WARN=0') { throw "clean fixture had WARN count > 0: $cleanOutput" }
+    if ($cleanOutput -notmatch '\[INFO\] Hermes default home not found \(not installed\)\.') { throw "absent Hermes did not emit INFO line: $cleanOutput" }
+
+    New-Item -ItemType Directory -Path (Join-Path $cleanHome 'AppData/Local/hermes') -Force | Out-Null
+    $presentHermesOutput = & pwsh -NoProfile -File (Join-Path $cleanRepo 'scripts/doctor.ps1') -RepoRoot $cleanRepo -HomeRoot $cleanHome 2>&1 | Out-String; $presentHermesCode=$LASTEXITCODE
+    if ($presentHermesCode -ne 0) { throw "present Hermes doctor failed: $presentHermesOutput" }
+    if ($presentHermesOutput -notmatch '\[PASS\] Hermes live root: %LOCALAPPDATA%/hermes \(default profile\)\.') { throw "present Hermes did not report PASS: $presentHermesOutput" }
+    if ($presentHermesOutput -notmatch 'WARN=0' -or $presentHermesOutput -notmatch 'Doctor result: PASS\r?\n?$') { throw "present clean Hermes unexpectedly warned: $presentHermesOutput" }
+
+    $hermesReparseHome = Join-Path $work 'hermes-reparse-home'
+    $hermesReparseTarget = Join-Path $work 'hermes-reparse-target'
+    New-Item -ItemType Directory -Path (Join-Path $hermesReparseHome 'AppData/Local') -Force | Out-Null
+    New-Item -ItemType Directory -Path (Join-Path $hermesReparseHome '.codex/skills') -Force | Out-Null
+    New-Item -ItemType Directory -Path $hermesReparseTarget -Force | Out-Null
+    New-Item -ItemType Junction -Path (Join-Path $hermesReparseHome 'AppData/Local/hermes') -Target $hermesReparseTarget | Out-Null
+    $hermesReparseOutput = & pwsh -NoProfile -File (Join-Path $cleanRepo 'scripts/doctor.ps1') -RepoRoot $cleanRepo -HomeRoot $hermesReparseHome -SkipSecretsScan 2>&1 | Out-String; $hermesReparseCode=$LASTEXITCODE
+    if ($hermesReparseCode -ne 0) { throw "reparse Hermes doctor failed: $hermesReparseOutput" }
+    if ($hermesReparseOutput -notmatch '\[WARN\] Hermes default home or an ancestor is a reparse point' -or $hermesReparseOutput -notmatch 'Doctor result: PASS with warnings') { throw "reparse Hermes home did not emit WARN: $hermesReparseOutput" }
 
     Remove-Item -LiteralPath (Join-Path $cleanRepo 'scripts/mcp-sync.ps1') -Force
     $missingOutput = & pwsh -NoProfile -File (Join-Path $cleanRepo 'scripts/doctor.ps1') -RepoRoot $cleanRepo -HomeRoot $cleanHome -SkipSecretsScan 2>&1 | Out-String; $missingCode=$LASTEXITCODE

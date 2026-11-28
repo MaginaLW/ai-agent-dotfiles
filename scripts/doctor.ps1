@@ -65,6 +65,7 @@ Write-Section 'Required scripts'
 $requiredScripts = @(
     'agent-dotfiles',
     'antigravity-plugins',
+    'hermes-skills',
     'mcp-sync',
     'config-status',
     'config-pull',
@@ -105,6 +106,118 @@ foreach ($candidate in @(
     else { Add-DoctorResult PASS "$($candidate.Label) root entry detected with no content traversal: preserved-required." }
 }
 if (-not $systemFound) { Add-DoctorResult INFO 'No Codex .system directory was detected.' }
+
+Write-Section 'Hermes live root'
+$hermesRoot = Join-Path $HomeRoot 'AppData\Local\hermes'
+$hermesDataDirSuffix = [Environment]::GetEnvironmentVariable('HERMES_DATA_DIR_SUFFIX')
+if (-not [string]::IsNullOrWhiteSpace($hermesDataDirSuffix)) {
+    Add-DoctorResult WARN 'HERMES_DATA_DIR_SUFFIX is set; Hermes sync requires the default %LOCALAPPDATA%/hermes root.'
+}
+$hermesHomeOverride = [Environment]::GetEnvironmentVariable('HERMES_HOME')
+if (-not [string]::IsNullOrWhiteSpace($hermesHomeOverride)) {
+    $matchesDefaultHermes = $false
+    try {
+        $provider = $null
+        $drive = $null
+        $resolvedDefaultHermes = $ExecutionContext.SessionState.Path.GetUnresolvedProviderPathFromPSPath($hermesRoot, [ref]$provider, [ref]$drive)
+        $defaultHermesProvider = $provider
+        $provider = $null
+        $drive = $null
+        $resolvedOverrideHermes = $ExecutionContext.SessionState.Path.GetUnresolvedProviderPathFromPSPath($hermesHomeOverride, [ref]$provider, [ref]$drive)
+        if ($null -ne $defaultHermesProvider -and $defaultHermesProvider.Name -ceq 'FileSystem' -and
+            $null -ne $provider -and $provider.Name -ceq 'FileSystem' -and
+            [IO.Path]::IsPathRooted($hermesHomeOverride)) {
+            $normDefaultHermes = [IO.Path]::GetFullPath($resolvedDefaultHermes).TrimEnd('\', '/')
+            $normOverrideHermes = [IO.Path]::GetFullPath($resolvedOverrideHermes).TrimEnd('\', '/')
+            if ($normOverrideHermes -ieq $normDefaultHermes) {
+                $matchesDefaultHermes = $true
+            }
+        }
+    }
+    catch {
+        $matchesDefaultHermes = $false
+    }
+    if (-not $matchesDefaultHermes) {
+        Add-DoctorResult WARN 'HERMES_HOME overrides the default Hermes root; Hermes sync requires the default %LOCALAPPDATA%/hermes root.'
+    }
+}
+$hermesReparseBlocked = $false
+try {
+    Assert-PlainPathNoReparse -Path $hermesRoot -AllowMissing
+}
+catch {
+    $hermesReparseBlocked = $true
+    Add-DoctorResult WARN 'Hermes default home or an ancestor is a reparse point; Hermes sync refuses it.'
+}
+if (-not $hermesReparseBlocked) {
+    $hermesItem = Get-Item -LiteralPath $hermesRoot -Force -ErrorAction SilentlyContinue
+    if ($null -eq $hermesItem) {
+        Add-DoctorResult INFO 'Hermes default home not found (not installed).'
+    }
+    elseif (-not $hermesItem.PSIsContainer) {
+        Add-DoctorResult WARN 'Hermes default home path is occupied by a file, not a directory.'
+    }
+    else {
+        $hermesProfileOk = $true
+        $activeProfilePath = Join-Path $hermesRoot 'active_profile'
+        $activeProfileItem = Get-Item -LiteralPath $activeProfilePath -Force -ErrorAction SilentlyContinue
+        if ($null -ne $activeProfileItem) {
+            if ($activeProfileItem.Attributes -band [IO.FileAttributes]::ReparsePoint) {
+                Add-DoctorResult WARN 'Hermes active_profile is a reparse point; Hermes sync refuses it.'
+                $hermesProfileOk = $false
+            }
+            elseif ($activeProfileItem.PSIsContainer) {
+                Add-DoctorResult WARN 'Hermes active_profile is a directory, not a file.'
+                $hermesProfileOk = $false
+            }
+            else {
+                $activeProfileText = $null
+                try { $activeProfileText = ([IO.File]::ReadAllText($activeProfilePath)).Trim() } catch { $activeProfileText = $null }
+                if ($null -eq $activeProfileText -or ($activeProfileText -cne 'default')) {
+                    Add-DoctorResult WARN 'Hermes active_profile is not set to default; Hermes sync targets only the default profile.'
+                    $hermesProfileOk = $false
+                }
+            }
+        }
+
+        $hermesSkillsOk = $true
+        $hermesSkillsRoot = Join-Path $hermesRoot 'skills'
+        $hermesSkillsItem = Get-Item -LiteralPath $hermesSkillsRoot -Force -ErrorAction SilentlyContinue
+        if ($null -ne $hermesSkillsItem) {
+            if ($hermesSkillsItem.Attributes -band [IO.FileAttributes]::ReparsePoint) {
+                Add-DoctorResult WARN 'Hermes skills directory is a reparse point; Hermes sync refuses it.'
+                $hermesSkillsOk = $false
+            }
+            elseif (-not $hermesSkillsItem.PSIsContainer) {
+                Add-DoctorResult WARN 'Hermes skills path is occupied by a file, not a directory.'
+                $hermesSkillsOk = $false
+            }
+        }
+        $hermesCategoryRoot = Join-Path $hermesSkillsRoot 'ai-agent-dotfiles'
+        if ($hermesSkillsOk) {
+            $hermesCategoryItem = Get-Item -LiteralPath $hermesCategoryRoot -Force -ErrorAction SilentlyContinue
+            if ($null -ne $hermesCategoryItem) {
+                if ($hermesCategoryItem.Attributes -band [IO.FileAttributes]::ReparsePoint) {
+                    Add-DoctorResult WARN 'Hermes skills/ai-agent-dotfiles entry is a reparse point; Hermes sync refuses it.'
+                    $hermesSkillsOk = $false
+                }
+                elseif (-not $hermesCategoryItem.PSIsContainer) {
+                    Add-DoctorResult WARN 'Hermes skills/ai-agent-dotfiles path is occupied by a file, not a directory.'
+                    $hermesSkillsOk = $false
+                }
+                else {
+                    Add-DoctorResult PASS 'Hermes managed skills root skills/ai-agent-dotfiles exists.'
+                }
+            }
+            else {
+                Add-DoctorResult INFO 'Hermes managed skills root skills/ai-agent-dotfiles not created yet.'
+            }
+        }
+        if ($hermesProfileOk -and $hermesSkillsOk) {
+            Add-DoctorResult PASS 'Hermes live root: %LOCALAPPDATA%/hermes (default profile).'
+        }
+    }
+}
 
 Write-Section 'Secret scanning'
 $lockPath = Join-Path $RepoRoot 'tools\gitleaks\gitleaks.lock.json'
