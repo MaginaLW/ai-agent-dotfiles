@@ -9,7 +9,7 @@
     through unchanged and are not echoed by the wrapper.
 
 .PARAMETER Command
-    One of: help, doctor, build, scan, sync, config, profile, skills, env, antigravity, mcp, status, or dashboard.
+    One of: help, doctor, build, scan, sync, config, profile, skills, env, antigravity, hermes, mcp, status, or dashboard.
 
 .EXAMPLE
     pwsh -File scripts/agent-dotfiles.ps1 doctor -SkipSecretsScan
@@ -42,7 +42,7 @@ function Write-Usage([string] $Group) {
     if ($Group) {
         if ($Group -eq 'status') {
             Write-Host 'Usage: pwsh -File scripts/agent-dotfiles.ps1 status [-Json] [-RepoRoot <path>] [-HomeRoot <path>] [-StateRoot <path>]'
-            Write-Host 'status: read-only overview aggregating env list, config status, antigravity status, and mcp status.'
+            Write-Host 'status: read-only overview aggregating env list, config status, antigravity status, hermes status, and mcp status.'
             Write-Host 'Examples: status; status -Json'
             Write-Host 'Options: -Json, -RepoRoot <path>, -HomeRoot <path>, -StateRoot <path>.'
             Write-Host 'The status command is strictly read-only and accepts no -DryRun or -Apply mode.'
@@ -71,7 +71,14 @@ function Write-Usage([string] $Group) {
                 Write-Host 'pull: repository -> home; Apply backs up overwritten files and preserves local-only settings.'
                 Write-Host 'push: home -> repository capture; this is not git push. Review the captured diff before committing.'
                 Write-Host 'Examples: config status; config pull -DryRun; config push -DryRun'
-                Write-Host 'Options: -Platform Codex|Antigravity (default Codex), -RepoRoot <path>, -HomeRoot <path>.'
+                Write-Host 'Options: -Platform Codex|Antigravity|Hermes (default Codex), -RepoRoot <path>, -HomeRoot <path>.'
+            }
+            hermes {
+                Write-Host 'status: read-only inspection of Hermes managed shared skills under %LOCALAPPDATA%/hermes/skills/ai-agent-dotfiles.'
+                Write-Host 'deploy: previews by default; authorized Apply deploys selected shared skills and prunes only previously managed or -Retire skills.'
+                Write-Host 'Examples: hermes status; hermes deploy -DryRun; hermes deploy -Apply'
+                Write-Host 'Options: -RepoRoot <path>, -HomeRoot <path>, -StateRoot <path>, -JsonPath <file>, -Json; deploy also accepts -Retire <skill>, -SkipSecretScan, and requires -DryRun or -Apply.'
+                Write-Host 'Hermes deploy is separate from sync and env deploy; only deploy accepts -DryRun, -Apply, -Retire, or -SkipSecretScan.'
             }
             env {
                 Write-Host 'list: read-only environment selections and last recorded Apply environment; it does not verify live contents.'
@@ -92,10 +99,10 @@ function Write-Usage([string] $Group) {
                 Write-Host 'Options: -Type shared|codex-only; -Replace replaces a source skill of the same type with a backup.'
             }
             mcp {
-                Write-Host 'status: read-only inspection of Antigravity and Codex managed MCP projections.'
-                Write-Host 'deploy: previews per-entry projection with -DryRun; authorized -Apply merges Antigravity JSON and runs codex mcp CLI.'
-                Write-Host 'Examples: mcp status; mcp deploy -DryRun; mcp deploy -Platform Codex,Antigravity -DryRun'
-                Write-Host 'Options: -Platform Antigravity|Codex, -Server <name>, -RepoRoot <path>, -HomeRoot <path>, -BackupRoot <path>, -JsonPath <file>, -Json, -SkipSecretScan.'
+                Write-Host 'status: read-only inspection of Antigravity, Codex, and Hermes managed MCP projections.'
+                Write-Host 'deploy: previews per-entry projection with -DryRun; authorized -Apply merges Antigravity/Hermes config and runs codex mcp CLI.'
+                Write-Host 'Examples: mcp status; mcp deploy -DryRun; mcp deploy -Platform Codex,Antigravity,Hermes -DryRun'
+                Write-Host 'Options: -Platform Antigravity|Codex|Hermes, -Server <name>, -RepoRoot <path>, -HomeRoot <path>, -BackupRoot <path>, -JsonPath <file>, -Json, -SkipSecretScan.'
                 Write-Host 'Only deploy accepts -DryRun, -Apply, -BackupRoot, or -SkipSecretScan.'
             }
         }
@@ -103,19 +110,20 @@ function Write-Usage([string] $Group) {
         return
     }
     Write-Host 'Usage: pwsh -File scripts/agent-dotfiles.ps1 <command> [arguments]'
-    Write-Host 'Commands: help, doctor, build, scan, sync, config, profile, skills, env, antigravity, mcp, status, dashboard'
-    Write-Host 'Status actions: status [-Json] aggregates env list, config status, antigravity status, and mcp status.'
+    Write-Host 'Commands: help, doctor, build, scan, sync, config, profile, skills, env, antigravity, hermes, mcp, status, dashboard'
+    Write-Host 'Status actions: status [-Json] aggregates env list, config status, antigravity status, hermes status, and mcp status.'
     Write-Host 'Dashboard actions: dashboard [-Port <port>] [-NoBrowser] [-Check] [-Offline] launches the local Chinese web monitoring console.'
     Write-Host 'Antigravity actions: build, status, deploy -DryRun|-Apply; separate from sync and env deploy.'
+    Write-Host 'Hermes actions: status, deploy -DryRun|-Apply; separate from sync and env deploy.'
     Write-Host 'MCP actions: status, deploy -DryRun|-Apply; separate from sync and requires -DryRun or -Apply.'
     Write-Host 'Sync runs deploy.ps1 (skills plus config) and requires exactly one explicit mode: -DryRun or -Apply.'
     Write-Host 'Run sync in dry-run mode first: scripts/agent-dotfiles.ps1 sync -DryRun'
     Write-Host 'Config actions: status, pull, push. Profile actions: status, build, apply.'
     Write-Host 'Skills actions: promote -Path <dir> -Name <name> -Type <type> [-Replace] -DryRun|-Apply.'
     Write-Host 'Env actions: list [-RepoRoot <path>] [-StateRoot <path>] [-JsonPath <file>], deploy <name> -DryRun|-Apply.'
-    Write-Host 'sync, env deploy, antigravity deploy, mcp deploy, config pull/push, profile apply, and skills promote require exactly one explicit mode: -DryRun or -Apply.'
+    Write-Host 'sync, env deploy, antigravity deploy, hermes deploy, mcp deploy, config pull/push, profile apply, and skills promote require exactly one explicit mode: -DryRun or -Apply.'
     Write-Host 'build generates output; env list -JsonPath writes a report without a mode.'
-    Write-Host 'Group help: help config (or config help); also status, dashboard, env, profile, skills, antigravity and mcp.'
+    Write-Host 'Group help: help config (or config help); also status, dashboard, env, profile, skills, antigravity, hermes and mcp.'
 }
 
 function ConvertTo-ExplicitModeArguments([object[]] $Arguments, [string] $Label) {
@@ -426,7 +434,7 @@ function Invoke-UnifiedStatus {
     $childSpecs = [System.Collections.Generic.List[object]]::new()
 
     $configStatusScript = Join-Path $PSScriptRoot 'config-status.ps1'
-    $configArgs = @('-Platform', 'Codex,Antigravity', '-Json')
+    $configArgs = @('-Platform', 'Codex,Antigravity,Hermes', '-Json')
     if ($repoRoot) { $configArgs += @('-RepoRoot', $repoRoot) }
     if ($seenParameters.Contains('-HomeRoot')) { $configArgs += @('-HomeRoot', $homeRoot) }
     $childSpecs.Add([pscustomobject]@{ Key = 'Config'; ScriptPath = $configStatusScript; Arguments = $configArgs })
@@ -441,6 +449,13 @@ function Invoke-UnifiedStatus {
         }
     }
     $childSpecs.Add([pscustomobject]@{ Key = 'Antigravity'; ScriptPath = $agScript; Arguments = $agArgs })
+
+    $hermesScript = Join-Path $PSScriptRoot 'hermes-skills.ps1'
+    $hermesArgs = @('-Action', 'Status', '-Json')
+    if ($repoRoot) { $hermesArgs += @('-RepoRoot', $repoRoot) }
+    if ($seenParameters.Contains('-HomeRoot')) { $hermesArgs += @('-HomeRoot', $homeRoot) }
+    if ($seenParameters.Contains('-StateRoot')) { $hermesArgs += @('-StateRoot', (Join-Path $stateRoot 'hermes')) }
+    $childSpecs.Add([pscustomobject]@{ Key = 'Hermes'; ScriptPath = $hermesScript; Arguments = $hermesArgs })
 
     $mcpScript = Join-Path $PSScriptRoot 'mcp-sync.ps1'
     $mcpArgs = @('-Action', 'Status', '-Json')
@@ -518,6 +533,28 @@ function Invoke-UnifiedStatus {
     else {
         $rawErr = (@($mcpRes.StdOut, $mcpRes.StdErr) | Where-Object { -not [string]::IsNullOrWhiteSpace($_) }) -join "`n"
         $mcpJson = [ordered]@{ Error = "mcp-sync.ps1 failed (exit $($mcpRes.ExitCode))"; Raw = $rawErr }
+    }
+
+    # 4b. Hermes Skills status
+    $hermesRes = $childResults['Hermes']
+    $hermesJson = $null
+    if (-not $hermesRes.Exists) {
+        $hermesJson = [ordered]@{ Error = "hermes-skills.ps1 not found at $hermesScript" }
+    }
+    elseif ($hermesRes.TimedOut) {
+        $hermesJson = [ordered]@{ Error = 'hermes-skills.ps1 timed out' }
+    }
+    elseif ($hermesRes.ExitCode -eq 0) {
+        $hermesJson = Convert-ChildJson $hermesRes.StdOut
+        $hermesErrProp = Get-SafeProperty $hermesJson 'Error'
+        $hermesStateProp = Get-SafeProperty $hermesJson 'State'
+        if ($null -eq $hermesErrProp -and ($hermesStateProp -notin @('checked', 'not-installed', 'blocked'))) {
+            $hermesJson = [ordered]@{ Error = 'Expected a Hermes skills status report.' }
+        }
+    }
+    else {
+        $rawErr = (@($hermesRes.StdOut, $hermesRes.StdErr) | Where-Object { -not [string]::IsNullOrWhiteSpace($_) }) -join "`n"
+        $hermesJson = [ordered]@{ Error = "hermes-skills.ps1 failed (exit $($hermesRes.ExitCode))"; Raw = $rawErr }
     }
 
     # 5. Codex Live Skills status
@@ -610,10 +647,12 @@ function Invoke-UnifiedStatus {
 
     # Summary calculations
     $configSummary = [ordered]@{
-        'in-sync'   = 0
-        'differs'   = 0
-        'repo-only' = 0
-        'home-only' = 0
+        'in-sync'       = 0
+        'differs'       = 0
+        'repo-only'     = 0
+        'home-only'     = 0
+        'not-installed' = 0
+        'blocked'       = 0
     }
     if ($configJson -is [array]) {
         foreach ($item in $configJson) {
@@ -638,17 +677,18 @@ function Invoke-UnifiedStatus {
     elseif ($null -ne $agErrorVal) { $agAction = 'error' }
 
     $mcpSummary = [ordered]@{
-        'add'       = 0
-        'update'    = 0
-        'unchanged' = 0
-        'blocked'   = 0
+        'add'           = 0
+        'update'        = 0
+        'unchanged'     = 0
+        'blocked'       = 0
+        'not-installed' = 0
     }
     $mcpSummaryObj = Get-SafeProperty $mcpJson 'Summary'
     $mcpItems      = Get-SafeProperty $mcpJson 'Items'
     $mcpErrorVal   = Get-SafeProperty $mcpJson 'Error'
 
     if ($null -ne $mcpSummaryObj) {
-        foreach ($k in @('add', 'update', 'unchanged', 'blocked')) {
+        foreach ($k in @('add', 'update', 'unchanged', 'blocked', 'not-installed')) {
             $val = Get-SafeProperty $mcpSummaryObj $k
             if ($null -ne $val) {
                 $mcpSummary[$k] = [int] $val
@@ -664,16 +704,40 @@ function Invoke-UnifiedStatus {
         }
     }
 
+    $hermesErrorVal = Get-SafeProperty $hermesJson 'Error'
+    $hermesStateVal = Get-SafeProperty $hermesJson 'State'
+    $hermesReasonVal = Get-SafeProperty $hermesJson 'Reason'
+    $hermesSummaryObj = Get-SafeProperty $hermesJson 'Summary'
+    $hermesCounts = $null
+    if ($null -ne $hermesErrorVal) {
+        $hermesSummaryValue = 'error'
+    }
+    elseif ([string]$hermesStateVal -ceq 'checked') {
+        $hermesCounts = [ordered]@{
+            install   = [int]((Get-SafeProperty $hermesSummaryObj 'install') ?? 0)
+            update    = [int]((Get-SafeProperty $hermesSummaryObj 'update') ?? 0)
+            unchanged = [int]((Get-SafeProperty $hermesSummaryObj 'unchanged') ?? 0)
+            prune     = [int]((Get-SafeProperty $hermesSummaryObj 'prune') ?? 0)
+            unknown   = [int]((Get-SafeProperty $hermesSummaryObj 'unknown') ?? 0)
+            blocked   = [int]((Get-SafeProperty $hermesSummaryObj 'blocked') ?? 0)
+        }
+        $hermesSummaryValue = $hermesCounts
+    }
+    else {
+        $hermesSummaryValue = [string]$hermesStateVal
+    }
+
     $configError = Get-SafeProperty $configJson 'Error'
     if ($configError) { $configSummary = $null }
     if ($mcpErrorVal) { $mcpSummary = $null }
     $skillsHasError = ($skillsReport.State -ceq 'error')
-    $exitCode = [int][bool]($envReport.Failed -or $configError -or $agErrorVal -or $mcpErrorVal -or $skillsHasError)
+    $exitCode = [int][bool]($envReport.Failed -or $configError -or $agErrorVal -or $mcpErrorVal -or $hermesErrorVal -or $skillsHasError)
     $summary = [ordered]@{
         Environment = $envReport.Recorded
         Skills      = $skillsSummaryValue
         Config      = $configSummary
         Antigravity = $agAction
+        Hermes      = $hermesSummaryValue
         Mcp         = $mcpSummary
     }
 
@@ -688,6 +752,7 @@ function Invoke-UnifiedStatus {
         Skills        = $skillsReport
         Config        = $configJson
         Antigravity   = $agJson
+        Hermes        = $hermesJson
         Mcp           = $mcpJson
         Summary       = $summary
     }
@@ -742,13 +807,15 @@ function Invoke-UnifiedStatus {
             $itemItem = Get-SafeProperty $item 'Item'
             $itemDetail = Get-SafeProperty $item 'Detail'
             $color = switch ($itemStatus) {
-                'in-sync' { 'Green' }
-                'differs' { 'Yellow' }
-                default   { 'Cyan' }
+                'in-sync'       { 'Green' }
+                'differs'       { 'Yellow' }
+                'blocked'       { 'Red' }
+                'not-installed' { 'DarkGray' }
+                default         { 'Cyan' }
             }
-            Write-Host ("  {0,-12} {1,-9} {2} ({3})" -f $itemPlatform, $itemStatus, $itemItem, $itemDetail) -ForegroundColor $color
+            Write-Host ("  {0,-12} {1,-13} {2} ({3})" -f $itemPlatform, $itemStatus, $itemItem, $itemDetail) -ForegroundColor $color
         }
-        Write-Host ("  Summary: in-sync={0}  differs={1}  repo-only={2}  home-only={3}" -f $configSummary['in-sync'], $configSummary['differs'], $configSummary['repo-only'], $configSummary['home-only'])
+        Write-Host ("  Summary: in-sync={0}  differs={1}  repo-only={2}  home-only={3}  not-installed={4}  blocked={5}" -f $configSummary['in-sync'], $configSummary['differs'], $configSummary['repo-only'], $configSummary['home-only'], $configSummary['not-installed'], $configSummary['blocked'])
     }
     elseif ($null -ne $configError) {
         Write-Host ("  Error querying config status: {0}" -f $configError) -ForegroundColor Red
@@ -795,16 +862,41 @@ function Invoke-UnifiedStatus {
             $mcpServer = Get-SafeProperty $item 'Server'
             $mcpAction = Get-SafeProperty $item 'Action'
             $mcpReason = Get-SafeProperty $item 'Reason'
-            $mcpColor = if ($mcpAction -eq 'unchanged') { 'Green' } elseif ($mcpAction -eq 'blocked') { 'Red' } else { 'Yellow' }
-            Write-Host ("  [{0,-11}] {1,-16} {2,-9} ({3})" -f $mcpPlatform, $mcpServer, $mcpAction, $mcpReason) -ForegroundColor $mcpColor
+            $mcpColor = switch ($mcpAction) {
+                'unchanged'     { 'Green' }
+                'blocked'       { 'Red' }
+                'not-installed' { 'DarkGray' }
+                default         { 'Yellow' }
+            }
+            Write-Host ("  [{0,-11}] {1,-16} {2,-13} ({3})" -f $mcpPlatform, $mcpServer, $mcpAction, $mcpReason) -ForegroundColor $mcpColor
         }
-        Write-Host ("  Summary: add={0}  update={1}  unchanged={2}  blocked={3}" -f $mcpSummary['add'], $mcpSummary['update'], $mcpSummary['unchanged'], $mcpSummary['blocked'])
+        Write-Host ("  Summary: add={0}  update={1}  unchanged={2}  blocked={3}  not-installed={4}" -f $mcpSummary['add'], $mcpSummary['update'], $mcpSummary['unchanged'], $mcpSummary['blocked'], $mcpSummary['not-installed'])
     }
     elseif ($null -ne $mcpErrorVal) {
         Write-Host ("  Error querying MCP projections: {0}" -f $mcpErrorVal) -ForegroundColor Red
     }
     else {
         Write-Host '  No managed MCP projections found.'
+    }
+    Write-Host ''
+
+    Write-Host '[Hermes Skills]' -ForegroundColor Cyan
+    if ($null -ne $hermesErrorVal) {
+        Write-Host ("  Error checking Hermes skills: {0}" -f $hermesErrorVal) -ForegroundColor Red
+    }
+    elseif ([string]$hermesStateVal -ceq 'checked') {
+        $hsColor = if ($hermesCounts.blocked -gt 0) { 'Red' } elseif ($hermesCounts.install -gt 0 -or $hermesCounts.update -gt 0 -or $hermesCounts.prune -gt 0) { 'Yellow' } else { 'Green' }
+        Write-Host ("  Category: {0}  live={1}" -f (Get-SafeProperty $hermesJson 'Category'), (Get-SafeProperty $hermesJson 'LiveRoot'))
+        Write-Host ("  Summary: install={0}  update={1}  unchanged={2}  prune={3}  unknown={4}  blocked={5}" -f $hermesCounts.install, $hermesCounts.update, $hermesCounts.unchanged, $hermesCounts.prune, $hermesCounts.unknown, $hermesCounts.blocked) -ForegroundColor $hsColor
+    }
+    elseif ([string]$hermesStateVal -ceq 'not-installed') {
+        Write-Host ("  State: not-installed ({0})" -f $hermesReasonVal) -ForegroundColor DarkGray
+    }
+    elseif ([string]$hermesStateVal -ceq 'blocked') {
+        Write-Host ("  State: blocked ({0})" -f $hermesReasonVal) -ForegroundColor Red
+    }
+    else {
+        Write-Host '  Hermes skills status unavailable.' -ForegroundColor Yellow
     }
     exit $exitCode
 }
@@ -843,6 +935,40 @@ function ConvertTo-RouteArguments {
             DuplicateModeError = 'The antigravity deploy command accepts only one mode: -DryRun or -Apply.'
             MissingModeError   = 'The antigravity deploy command requires an explicit -DryRun or -Apply mode. Run -DryRun first.'
         }
+        hermes = @{
+            IncludeActionArg   = $true
+            ActionValues       = @{ status = 'Status'; deploy = 'Deploy' }
+            PassThroughUnknown = $false
+            ModeAction         = 'deploy'
+            ValueParams        = @{
+                '-RepoRoot'  = @{ DisallowedValues = @('-RepoRoot', '-HomeRoot', '-StateRoot', '-JsonPath', '-Retire'); DuplicateError = 'Duplicate Hermes path parameter: {0}.'; MissingValueError = 'Hermes parameter {0} requires a value.' }
+                '-HomeRoot'  = @{ DisallowedValues = @('-RepoRoot', '-HomeRoot', '-StateRoot', '-JsonPath', '-Retire'); DuplicateError = 'Duplicate Hermes path parameter: {0}.'; MissingValueError = 'Hermes parameter {0} requires a value.' }
+                '-StateRoot' = @{ DisallowedValues = @('-RepoRoot', '-HomeRoot', '-StateRoot', '-JsonPath', '-Retire'); DuplicateError = 'Duplicate Hermes path parameter: {0}.'; MissingValueError = 'Hermes parameter {0} requires a value.' }
+                '-JsonPath'  = @{ DisallowedValues = @('-RepoRoot', '-HomeRoot', '-StateRoot', '-JsonPath', '-Retire'); DuplicateError = 'Duplicate Hermes path parameter: {0}.'; MissingValueError = 'Hermes parameter {0} requires a value.' }
+            }
+            MultiParams        = @{
+                '-Retire' = @{
+                    AllowedActions    = @('deploy')
+                    DisallowedError   = "The hermes $GroupAction command accepts no -Retire parameter."
+                    DisallowedValues  = @('-RepoRoot', '-HomeRoot', '-StateRoot', '-JsonPath', '-Retire', '-DryRun', '-Apply', '-Json', '-SkipSecretScan')
+                    MissingValueError = 'Hermes -Retire requires a skill name.'
+                    EmptyTokensError  = 'Hermes -Retire requires at least one skill name.'
+                    SplitComma        = $true
+                    Pattern           = '^[A-Za-z0-9](?:[A-Za-z0-9._-]*[A-Za-z0-9_-])?$'
+                    PatternError      = 'Hermes -Retire value must be a valid skill name.'
+                    Dedupe            = $true
+                    CaseSensitive     = $false
+                }
+            }
+            SwitchParams       = @{
+                '-Json'           = @{ DuplicateError = 'Duplicate Hermes -Json switch.' }
+                '-SkipSecretScan' = @{ AllowedActions = @('deploy'); DisallowedError = "The hermes $GroupAction command accepts no -SkipSecretScan parameter."; DuplicateError = 'Duplicate Hermes -SkipSecretScan switch.' }
+            }
+            UnsupportedError   = 'Unsupported hermes argument. Use exact -RepoRoot, -HomeRoot, -StateRoot, -JsonPath, -Retire, -Json, -SkipSecretScan, -DryRun or -Apply names.'
+            ModeDisallowedErr  = "The hermes $GroupAction command accepts no -DryRun or -Apply mode."
+            DuplicateModeError = 'The hermes deploy command accepts only one mode: -DryRun or -Apply.'
+            MissingModeError   = 'The hermes deploy command requires an explicit -DryRun or -Apply mode. Run -DryRun first.'
+        }
         mcp = @{
             IncludeActionArg   = $true
             PassThroughUnknown = $false
@@ -859,8 +985,8 @@ function ConvertTo-RouteArguments {
                     MissingValueError = 'MCP -Platform requires a value.'
                     EmptyTokensError  = 'MCP -Platform requires at least one platform name.'
                     SplitComma        = $true
-                    AllowedValues     = @('Antigravity', 'Codex')
-                    AllowedError      = "Unsupported MCP platform '{0}'. Expected Antigravity or Codex."
+                    AllowedValues     = @('Antigravity', 'Codex', 'Hermes')
+                    AllowedError      = "Unsupported MCP platform '{0}'. Expected Antigravity, Codex, or Hermes."
                     Dedupe            = $true
                     CaseSensitive     = $false
                 }
@@ -894,8 +1020,8 @@ function ConvertTo-RouteArguments {
                     CaseInsensitive       = $true
                     AllowColonSyntax      = $true
                     RejectLeadingDashVal  = $true
-                    MissingValueError     = 'Config -Platform requires at least one platform name. Expected Codex or Antigravity.'
-                    EmptyTokensError      = 'Config -Platform requires at least one platform name. Expected Codex or Antigravity.'
+                    MissingValueError     = 'Config -Platform requires at least one platform name. Expected Codex, Antigravity, or Hermes.'
+                    EmptyTokensError      = 'Config -Platform requires at least one platform name. Expected Codex, Antigravity, or Hermes.'
                     SplitComma            = $false
                     Dedupe                = $false
                 }
@@ -907,8 +1033,9 @@ function ConvertTo-RouteArguments {
     $spec = $routeSpecs[$CommandName]
     $outArgs = [System.Collections.Generic.List[object]]::new()
     if ($spec.IncludeActionArg) {
+        $actionVal = if ($spec.ContainsKey('ActionValues') -and $spec.ActionValues.ContainsKey($GroupAction)) { $spec.ActionValues[$GroupAction] } else { $GroupAction }
         $outArgs.Add('-Action')
-        $outArgs.Add($GroupAction)
+        $outArgs.Add($actionVal)
     }
 
     $seenParams = @{}
@@ -1080,8 +1207,8 @@ if ([string]::IsNullOrWhiteSpace($Command)) {
 if ($Command -ieq 'help') {
     $topics = @($RemainingArguments | Where-Object { $null -ne $_ })
     if ($topics.Count -eq 0) { Write-Usage; exit 0 }
-    if ($topics.Count -ne 1 -or $topics[0] -notin @('config', 'env', 'profile', 'skills', 'antigravity', 'mcp', 'status', 'dashboard')) {
-        Write-Error 'Unsupported help topic. Use help config, help env, help profile, help skills, help antigravity, help mcp, help status, or help dashboard.' -ErrorAction Continue
+    if ($topics.Count -ne 1 -or $topics[0] -notin @('config', 'env', 'profile', 'skills', 'antigravity', 'hermes', 'mcp', 'status', 'dashboard')) {
+        Write-Error 'Unsupported help topic. Use help config, help env, help profile, help skills, help antigravity, help hermes, help mcp, help status, or help dashboard.' -ErrorAction Continue
         exit 1
     }
     Write-Usage ([string] $topics[0]).ToLowerInvariant()
@@ -1102,6 +1229,10 @@ $groupCommandMaps = @{
         build  = 'antigravity-plugins.ps1'
         status = 'antigravity-plugins.ps1'
         deploy = 'antigravity-plugins.ps1'
+    }
+    hermes = @{
+        status = 'hermes-skills.ps1'
+        deploy = 'hermes-skills.ps1'
     }
     config = @{
         status = 'config-status.ps1'
@@ -1180,7 +1311,7 @@ if ($groupCommandMaps.ContainsKey($normalizedCommand)) {
         $forwardedArguments = @('-Environment', [string] $forwardedArguments[0]) + @($forwardedArguments | Select-Object -Skip 1)
     }
 
-    if ($normalizedCommand -in @('antigravity', 'mcp', 'config')) {
+    if ($normalizedCommand -in @('antigravity', 'hermes', 'mcp', 'config')) {
         $forwardedArguments = ConvertTo-RouteArguments -CommandName $normalizedCommand -GroupAction $groupAction -Arguments $forwardedArguments
     }
 

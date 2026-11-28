@@ -16,6 +16,7 @@
         'powershell-syntax-gate.tests.ps1' = 45
         'repository-policy.tests.ps1' = 30
         'harness-profile.tests.ps1' = 140
+        'hermes-skills.tests.ps1' = 60
         'scan-secrets.tests.ps1' = 90
         'promote-skill.tests.ps1' = 60
         'test-runner.tests.ps1' = 60

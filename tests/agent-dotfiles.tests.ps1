@@ -53,17 +53,23 @@ function Invoke-ParserCase {
 Write-Host 'unified CLI: env and config/profile routing'
 $result = Invoke-Entry -Arguments @('help')
 Assert ($result.Code -eq 0 -and $result.Out -match 'Usage:' -and $result.Out -match 'Commands: help') 'help displays usage and exits successfully'
-Assert ($result.Out -match 'sync, env deploy, antigravity deploy, mcp deploy, config pull/push, profile apply, and skills promote require exactly one explicit mode' -and $result.Out -match 'build generates output; env list -JsonPath writes a report without a mode') 'help distinguishes mode-gated actions from other writes'
-foreach ($group in @('config', 'env', 'profile', 'skills', 'antigravity', 'mcp')) {
+Assert ($result.Out -match 'sync, env deploy, antigravity deploy, hermes deploy, mcp deploy, config pull/push, profile apply, and skills promote require exactly one explicit mode' -and $result.Out -match 'build generates output; env list -JsonPath writes a report without a mode') 'help distinguishes mode-gated actions from other writes'
+foreach ($group in @('config', 'env', 'profile', 'skills', 'antigravity', 'hermes', 'mcp')) {
     foreach ($helpArgs in @(@('help', $group), @($group, 'help'))) {
         # One grouping keeps the native -File boundary; the rest are pure usage echoes.
         $result = Invoke-ParserCase -Arguments $helpArgs -Native:(($helpArgs -join ' ') -eq 'help config')
         Assert ($result.Code -eq 0 -and $result.Out -match "agent-dotfiles.ps1 $group <action>" -and $result.Out -notmatch 'Invoking script') "group help returns without executing a child: $($helpArgs -join ' ')"
         if ($group -eq 'config') {
-            Assert ($result.Out -match 'repository -> home' -and $result.Out -match 'home -> repository' -and $result.Out -match 'not git push') 'config help explains directions and distinguishes capture from Git publication'
+            Assert ($result.Out -match 'repository -> home' -and $result.Out -match 'home -> repository' -and $result.Out -match 'not git push' -and $result.Out -match 'Hermes') 'config help explains directions, Hermes support, and distinguishes capture from Git publication'
         }
         if ($group -eq 'antigravity') {
             Assert ($result.Out -match '-ExternalPlugin' -and $result.Out -notmatch 'two-skill') 'antigravity help documents -ExternalPlugin and avoids stale two-skill wording'
+        }
+        if ($group -eq 'hermes') {
+            Assert ($result.Out -match '%LOCALAPPDATA%/hermes/skills/ai-agent-dotfiles' -and $result.Out -match '-Retire') 'hermes help documents live root and -Retire'
+        }
+        if ($group -eq 'mcp') {
+            Assert ($result.Out -match 'Hermes') 'mcp help documents Hermes projection'
         }
     }
 }
@@ -356,6 +362,57 @@ $mcpLiteral = $null
 try { $mcpLiteral = ($result.Out -split "`n" | Where-Object { $_.StartsWith('{') }) | ConvertFrom-Json } catch { $mcpLiteral = $null }
 Assert ($result.Code -eq 0 -and $null -ne $mcpLiteral -and $mcpLiteral.RepoRoot -eq '-Apply' -and $mcpLiteral.HomeRoot -eq '-DryRun' -and (-not $mcpLiteral.Apply)) 'mcp deploy preserves literal mode strings as path values without activation'
 
+$mcpHermesRes = Invoke-TestProcess -ScriptPath $pluginEntry -Arguments @('mcp', 'status', '-Platform', 'Hermes', '-Json')
+$mcpHermesPayload = $null
+try { $mcpHermesPayload = $mcpHermesRes.Out | ConvertFrom-Json } catch { $mcpHermesPayload = $null }
+Assert ($mcpHermesRes.Code -eq 0 -and $null -ne $mcpHermesPayload -and ($mcpHermesPayload.Platform -join ',') -eq 'Hermes') 'mcp status -Platform Hermes forwards Hermes cleanly'
+
+$cfgHermesRes = Invoke-ParserCase -Arguments @('config', 'status', '-RepoRoot', $RepoRoot, '-HomeRoot', $fakeHome, '-Platform', 'Hermes', '-Json')
+$cfgHermesPayload = $null
+try { $cfgHermesPayload = $cfgHermesRes.Out | ConvertFrom-Json } catch { $cfgHermesPayload = $null }
+Assert ($cfgHermesRes.Code -eq 0 -and $null -ne $cfgHermesPayload -and @($cfgHermesPayload)[0].Platform -eq 'Hermes' -and @($cfgHermesPayload)[0].Status -eq 'not-installed') 'config status -Platform Hermes routes cleanly and reports not-installed on absent home'
+
+Write-Host 'unified CLI: Hermes routes and mode boundaries'
+Set-TestFile -Path (Join-Path $pluginScripts 'hermes-skills.ps1') -Content (@(
+    '[CmdletBinding()]',
+    'param([ValidateSet("Status","Deploy")][string] $Action = "Status", [string] $RepoRoot, [string] $HomeRoot, [string] $StateRoot, [string[]] $Retire = @(), [string] $JsonPath, [switch] $Json, [switch] $Apply, [switch] $SkipSecretScan)',
+    'if ($Action -ceq "Status" -and $Apply) { throw "invalid-status-apply" }',
+    '[pscustomobject]@{ SchemaVersion=1; Action=$Action; State="checked"; Reason=$null; Category="ai-agent-dotfiles"; LiveRoot="%LOCALAPPDATA%/hermes/skills/ai-agent-dotfiles"; Summary=[pscustomobject]@{ install=0; update=0; unchanged=8; prune=0; unknown=0; blocked=0 }; RepoRoot=$RepoRoot; HomeRoot=$HomeRoot; StateRoot=$StateRoot; Retire=@($Retire); JsonPath=$JsonPath; Json=[bool]$Json; Apply=[bool]$Apply; SkipSecretScan=[bool]$SkipSecretScan } | ConvertTo-Json -Depth 5 -Compress'
+) -join "`n")
+
+$hermesStatusRes = Invoke-TestProcess -ScriptPath $pluginEntry -Arguments @('hermes', 'status', '-RepoRoot', $fixtureRepo, '-HomeRoot', $fakeHome, '-StateRoot', (Join-Path $work 'hermes-state'), '-Json')
+$hermesStatusPayload = $null
+try { $hermesStatusPayload = $hermesStatusRes.Out | ConvertFrom-Json } catch { $hermesStatusPayload = $null }
+Assert ($hermesStatusRes.Code -eq 0 -and $null -ne $hermesStatusPayload -and $hermesStatusPayload.Action -ceq 'Status' -and (-not $hermesStatusPayload.Apply) -and $hermesStatusPayload.Json -and $hermesStatusRes.Out -notmatch 'Invoking script|Command result') 'hermes status -Json forwards Status cleanly without banners'
+
+$hermesDryRes = Invoke-TestProcess -ScriptPath $pluginEntry -Arguments @('hermes', 'deploy', '-DryRun', '-Retire', 'old-a,old-b')
+Assert ($hermesDryRes.Code -eq 0 -and $hermesDryRes.Out -match '"Action":"Deploy"' -and $hermesDryRes.Out -match '"Apply":false' -and $hermesDryRes.Out -match '"old-a,old-b"') 'hermes deploy -DryRun forwards Deploy without Apply and preserves -Retire'
+
+$hermesApplyRes = Invoke-TestProcess -ScriptPath $pluginEntry -Arguments @('hermes', 'deploy', '-Apply', '-SkipSecretScan')
+Assert ($hermesApplyRes.Code -eq 0 -and $hermesApplyRes.Out -match '"Action":"Deploy"' -and $hermesApplyRes.Out -match '"Apply":true' -and $hermesApplyRes.Out -match '"SkipSecretScan":true') 'hermes deploy -Apply forwards explicit Apply'
+
+foreach ($badHermes in @(
+    @('status', '-DryRun'),
+    @('status', '-Apply'),
+    @('status', '-Retire', 'alpha'),
+    @('status', '-SkipSecretScan'),
+    @('deploy'),
+    @('deploy', '-DryRun', '-Apply'),
+    @('deploy', '-Apply:$true'),
+    @('deploy', '-DryRun', '-Retire', 'bad name'),
+    @('deploy', '-DryRun', '-Repo'),
+    @('deploy', '-DryRun', 'extra-pos')
+)) {
+    $useNative = ($badHermes -join ' ') -eq 'deploy -Apply:$true'
+    $result = Invoke-ParserCase -ScriptPath $pluginEntry -Arguments (@('hermes') + $badHermes) -Native:$useNative
+    Assert ($result.Code -eq 1 -and $result.Out -notmatch 'Invoking script') "hermes rejects invalid route arguments before dispatch: $($badHermes -join ' ')"
+}
+
+$hermesLitRes = Invoke-ParserCase -ScriptPath $pluginEntry -Arguments @('hermes', 'deploy', '-RepoRoot', '-Apply', '-HomeRoot', '-DryRun', '-DryRun')
+$hermesLiteral = $null
+try { $hermesLiteral = ($hermesLitRes.Out -split "`n" | Where-Object { $_.StartsWith('{') }) | ConvertFrom-Json } catch { $hermesLiteral = $null }
+Assert ($hermesLitRes.Code -eq 0 -and $null -ne $hermesLiteral -and $hermesLiteral.RepoRoot -eq '-Apply' -and $hermesLiteral.HomeRoot -eq '-DryRun' -and (-not $hermesLiteral.Apply)) 'hermes deploy preserves literal mode strings as path values without activation'
+
 Write-Host 'unified CLI: top-level status command and aggregation'
 foreach ($badStatus in @(
     @('-DryRun'),
@@ -383,6 +440,7 @@ Assert ($statusOut.Out -match '\[Codex Live Skills\]') 'status output contains C
 Assert ($statusOut.Out -match '\[Config Status\]') 'status output contains Config Status section'
 Assert ($statusOut.Out -match '\[Antigravity Plugins\]') 'status output contains Antigravity Plugins section'
 Assert ($statusOut.Out -match '\[MCP Projections\]') 'status output contains MCP Projections section'
+Assert ($statusOut.Out -match '\[Hermes Skills\]') 'status output contains Hermes Skills section'
 Assert ($statusOut.Out -notmatch 'Invoking script|Command result') 'status human-readable emits no wrapper invocation banners'
 
 Set-TestFile -Path (Join-Path $fixtureRepo 'harness-source/mcp/servers.psd1') -Content @'
@@ -415,9 +473,10 @@ Assert ($parsedStatus.SchemaVersion -eq 1) 'status JSON contains SchemaVersion =
 Assert ($null -ne $parsedStatus.Environment -and $parsedStatus.Environment.Available -contains 'work') 'status JSON contains Environment section'
 Assert ($null -ne $parsedStatus.Config -and ($parsedStatus.Config -is [array] -or $null -ne $parsedStatus.Config.Error)) 'status JSON contains Config section'
 Assert ($parsedStatus.Antigravity.Error -and $parsedStatus.Summary.Antigravity -eq 'error') 'status JSON identifies the failed plugin query'
+Assert ($parsedStatus.Hermes.Error -and $parsedStatus.Summary.Hermes -eq 'error') 'status JSON identifies the failed Hermes query when manifest is absent'
 Assert ($null -ne $parsedStatus.Mcp) 'status JSON contains Mcp section'
 Assert ($null -ne $parsedStatus.Skills -and $parsedStatus.Skills.State -eq 'unavailable' -and $null -eq $parsedStatus.Skills.Summary -and $null -eq $parsedStatus.Skills.Error) 'status JSON contains Skills section with unavailable state'
-Assert ($null -ne $parsedStatus.Summary -and $null -ne $parsedStatus.Summary.Environment -and $parsedStatus.Summary.Skills -eq 'unavailable' -and $null -ne $parsedStatus.Summary.Config -and $null -ne $parsedStatus.Summary.Antigravity -and $null -ne $parsedStatus.Summary.Mcp) 'status JSON contains Summary section with all 5 subsystems'
+Assert ($null -ne $parsedStatus.Summary -and $null -ne $parsedStatus.Summary.Environment -and $parsedStatus.Summary.Skills -eq 'unavailable' -and $null -ne $parsedStatus.Summary.Config -and $null -ne $parsedStatus.Summary.Antigravity -and $null -ne $parsedStatus.Summary.Hermes -and $null -ne $parsedStatus.Summary.Mcp) 'status JSON contains Summary section with all 6 subsystems'
 
 foreach ($output in @($mcpResult.Out, [IO.File]::ReadAllText($reportPath), $jsonResult.Out)) {
     Assert ($output -notmatch 'private-fixture-mode|private-fixture-header|declared-mode|declared-header') 'entire JSON output omits live and declared MCP values'
@@ -490,6 +549,7 @@ try { $mockJson = ConvertFrom-Json -InputObject $mockResult.Out } catch { $mockJ
 Assert ($null -ne $mockJson) 'mock stub status produces valid JSON'
 Assert ($mockJson.Config.Count -eq 2) 'mock stub config items merged correctly'
 Assert ($mockJson.Antigravity.Name -eq 'ai-agent-dotfiles') 'mock stub Antigravity report merged correctly'
+Assert ($mockJson.Hermes.State -eq 'checked' -and $mockJson.Summary.Hermes.unchanged -eq 8) 'mock stub Hermes checked report merged correctly'
 Assert ($mockJson.Mcp.Summary.update -eq 1) 'mock stub MCP summary merged correctly'
 Assert ($mockJson.Summary.Config.'in-sync' -eq 1 -and $mockJson.Summary.Config.differs -eq 1) 'mock stub Config summary counted correctly'
 Assert ($mockJson.Summary.Antigravity -eq 'update' -and $mockJson.Antigravity.ApplyRequirement -eq 'build-with-current-agy-before-apply') 'mock stub Antigravity summary and build requirement matched'
@@ -500,11 +560,24 @@ $mockHuman = Invoke-ParserCase -ScriptPath $pluginEntry -Arguments @('status', '
 Assert ($mockHuman.Code -eq 0) 'mock stub human-readable status exits 0'
 Assert ($mockHuman.Out -match '=== Unified Status ===') 'mock stub human-readable contains header'
 Assert ($mockHuman.Out -match '\[Codex Live Skills\]') 'mock stub human-readable contains Codex Live Skills section'
+Assert ($mockHuman.Out -match '\[Hermes Skills\]' -and $mockHuman.Out -match 'unchanged=8') 'mock stub human-readable contains Hermes Skills section'
 Assert ($mockHuman.Out -match 'mock-block') 'mock stub human-readable contains config detail'
 Assert ($mockHuman.Out -match 'version-upgrade') 'mock stub human-readable contains antigravity plugin reason'
 Assert ($mockHuman.Out -match 'build with the current agy before Apply.*antigravity build.*deploy -DryRun') 'status renders actionable current-agy build guidance'
 Assert ($mockHuman.Out -match 'External: unity\s+action=unchanged') 'status displays a single external plugin'
 Assert ($mockHuman.Out -match 'mock-diff') 'mock stub human-readable contains mcp projection reason'
+
+$savedHermesStub = Get-Content -LiteralPath (Join-Path $pluginScripts 'hermes-skills.ps1') -Raw
+Set-TestFile -Path (Join-Path $pluginScripts 'hermes-skills.ps1') -Content (@(
+    'param([string]$Action,[string]$RepoRoot,[string]$HomeRoot,[string]$StateRoot,[switch]$Json)',
+    '[pscustomobject]@{ SchemaVersion=1; Action="Status"; State="not-installed"; Reason="hermes-home-missing"; Category="ai-agent-dotfiles"; LiveRoot="%LOCALAPPDATA%/hermes/skills/ai-agent-dotfiles"; Summary=[pscustomobject]@{ install=0; update=0; unchanged=0; prune=0; unknown=0; blocked=0 } } | ConvertTo-Json -Depth 5 -Compress'
+) -join "`n")
+$niStatus = Invoke-ParserCase -ScriptPath $pluginEntry -Arguments @('status', '-RepoRoot', $fixtureRepo, '-HomeRoot', $fakeHome, '-StateRoot', (Join-Path $work 'missing-state'), '-Json')
+$niJson = $niStatus.Out | ConvertFrom-Json
+Assert ($niStatus.Code -eq 0 -and $niJson.Hermes.State -eq 'not-installed' -and $niJson.Summary.Hermes -eq 'not-installed') 'mock stub Hermes not-installed exits 0 without error'
+$niHuman = Invoke-ParserCase -ScriptPath $pluginEntry -Arguments @('status', '-RepoRoot', $fixtureRepo, '-HomeRoot', $fakeHome, '-StateRoot', (Join-Path $work 'missing-state'))
+Assert ($niHuman.Code -eq 0 -and $niHuman.Out -match '\[Hermes Skills\]' -and $niHuman.Out -match 'not-installed') 'mock stub human-readable renders Hermes not-installed state'
+Set-TestFile -Path (Join-Path $pluginScripts 'hermes-skills.ps1') -Content $savedHermesStub
 
 Set-TestFile -Path (Join-Path $pluginScripts 'antigravity-plugins.ps1') -Content ((Get-Content -LiteralPath (Join-Path $pluginScripts 'antigravity-plugins.ps1') -Raw) -replace 'ApplyRequirement = "build-with-current-agy-before-apply"', 'ApplyRequirement = "none"')
 $readyHuman = Invoke-ParserCase -ScriptPath $pluginEntry -Arguments @('status', '-RepoRoot', $fixtureRepo, '-HomeRoot', $fakeHome, '-StateRoot', (Join-Path $work 'missing-state'))
@@ -552,8 +625,8 @@ Assert ($fileRootStatus.Out -notmatch [regex]::Escape($fileStateRoot) -and $dirR
 $badRootArgs = @('status', '-RepoRoot', (Join-Path $work 'missing-repo'), '-HomeRoot', $fakeHome, '-StateRoot', (Join-Path $work 'missing-state'), '-Json')
 $badRoot = Invoke-ParserCase -Arguments $badRootArgs
 $failed = $badRoot.Out | ConvertFrom-Json
-Assert ($badRoot.Code -ne 0 -and $failed.Environment.Error -and $failed.Config.Error -and $failed.Antigravity.Error -and $failed.Mcp.Error) 'bad RepoRoot returns nonzero and a parseable report of each unavailable section'
-Assert ($null -eq $failed.Summary.Config -and $null -eq $failed.Summary.Mcp) 'unavailable counts are distinct from a successful empty inventory'
+Assert ($badRoot.Code -ne 0 -and $failed.Environment.Error -and $failed.Config.Error -and $failed.Antigravity.Error -and $failed.Hermes.Error -and $failed.Mcp.Error) 'bad RepoRoot returns nonzero and a parseable report of each unavailable section'
+Assert ($null -eq $failed.Summary.Config -and $null -eq $failed.Summary.Mcp -and $failed.Summary.Hermes -eq 'error') 'unavailable counts are distinct from a successful empty inventory'
 
 Set-TestFile -Path (Join-Path $pluginScripts 'config-status.ps1') -Content "Write-Output '[WARN] child warning [with brackets]'; Write-Output '[{""Platform"":""Codex"",""Item"":""AGENTS.md"",""Status"":""in-sync"",""Detail"":""warn-prefixed""}]'"
 $warnPrefixed = Invoke-ParserCase -ScriptPath $pluginEntry -Arguments @('status', '-RepoRoot', $fixtureRepo, '-HomeRoot', $fakeHome, '-StateRoot', (Join-Path $work 'missing-state'), '-Json')
@@ -606,7 +679,7 @@ Set-TestFile -Path (Join-Path $skillsScripts 'config-status.ps1') -Content (@(
     'param([string] $RepoRoot, [string] $HomeRoot, [string[]] $Platform, [switch] $Json)',
     '@([pscustomobject]@{ Platform="Codex"; Item="AGENTS.md"; Status="in-sync"; Detail="mock-block" }) | ConvertTo-Json -Depth 5'
 ) -join "`n")
-foreach ($stubName in @('antigravity-plugins.ps1', 'mcp-sync.ps1')) {
+foreach ($stubName in @('antigravity-plugins.ps1', 'hermes-skills.ps1', 'mcp-sync.ps1')) {
     Copy-Item -LiteralPath (Join-Path $pluginScripts $stubName) -Destination (Join-Path $skillsScripts $stubName) -Force
 }
 $skillsEntry = Join-Path $skillsScripts 'agent-dotfiles.ps1'
