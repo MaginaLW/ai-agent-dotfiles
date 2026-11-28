@@ -255,7 +255,7 @@ pwsh -NoProfile -File scripts/run-tests.ps1 -MaxParallel 2
 pwsh -NoProfile -File scripts/run-tests.ps1 -Suite repository-policy
 ```
 
-它按 `tests/test-timeouts.psd1` 预算从长到短（LPT）并发调度测试套件，默认 `-MaxParallel` 为 `min(4, max(1, CPU 核数))`（有效范围 `1..32`，指定 `-Suite` 时自动以 `1` 串行运行）；每个套件缓冲独立输出并在结束后整块打印以避免并发日志交错，超时后终止进程树并执行 `config-sync` 清理契约，任一套件失败或超时即以 1 退出。
+它按 `tests/test-timeouts.psd1` 预算从长到短（LPT）并发调度测试套件，默认 `-MaxParallel` 为 `min(4, max(1, floor(CPU 核数 / 2)))`（有效范围 `1..32`，指定 `-Suite` 时自动以 `1` 串行运行）；每个套件缓冲独立输出并在结束后整块打印以避免并发日志交错，超时后终止进程树并执行 `config-sync` 清理契约，任一套件失败或超时即以 1 退出。
 CI 同款的全量验证入口是 `scripts/run-repository-validation.ps1`（PowerShell 与 Python 语法、gitleaks 校验、build、秘密扫描、
 doctor、manifest 一致性、全部测试套件、危险文件检查与干净树，逐 gate 执行；GitHub Actions 使用 `actions/cache@v4` 按 `tools/gitleaks/gitleaks.lock.json` 缓存固定版本 gitleaks，仍通过 `install-gitleaks.ps1` 执行压缩包与可执行文件双重 SHA-256 校验）。
 
@@ -497,7 +497,7 @@ pwsh -NoProfile -File scripts/agent-dotfiles.ps1 antigravity deploy -DryRun
 不备份整个原生配置根，不把凭据写入仓库。受控更新通过写前备份 live 目录到 attempt/backup，
 随后顺序执行官方 `agy plugin uninstall` 与 `agy plugin install` 并进行全量读回校验与外部插件无变动验证；
 降级与自动盲目回滚仍保持阻塞，卸载、停用与手动恢复须有覆盖实际动作的许可。
-构建候选包保存在工作区 `tmp/antigravity/`；本机部署收据、尝试记录与 pending 标记持久化在 `%LOCALAPPDATA%\ai-agent-dotfiles.deploy\antigravity\`（可通过内部 `-StateRoot` 参数进行隔离测试），解除了跨工作树部署归属割裂问题。`status` 命令直接解耦对比 live 文件与源码 digest，无需依赖本地未构建包或受门禁改动干扰。未解决的尝试保留 pending 标记阻止继续变更；先审阅读回，不能删除标记来盲重试。原生路径覆写变量非空时拒绝猜测目标。
+构建候选包保存在工作区 `tmp/antigravity/`；本机部署收据、尝试记录与 pending 标记持久化在 `%LOCALAPPDATA%\ai-agent-dotfiles.deploy\antigravity\`（可通过内部 `-StateRoot` 参数进行隔离测试），解除了跨工作树部署归属割裂问题。`status` 命令直接解耦对比 live 文件与源码 digest，无需依赖本地未构建包或受门禁改动干扰。未解决的尝试保留 pending 标记阻止继续变更；先审阅读回，不能删除标记来盲重试。原生路径覆写变量非空时拒绝猜测目标。Windows 下若在运行中的 Antigravity IDE 会话内执行 `antigravity deploy -Apply` 并遇到 `plugins/` 目录重命名 `Access is denied`，请先彻底退出 Antigravity IDE，审阅保留的 attempt 结果后在外部 PowerShell 7 窗口按需归档阻塞的 `pending-install.json`（及已失效的旧 `installed.json`），再执行 `-DryRun` 与 `-Apply` 完成收敛（切勿删除备份或盲目重试）。
 
 安装读回、启用、加载与使用分别记录为 built / validated / installed / enabled / loaded / used。
 在 App 和 CLI 中分别核对插件面板、项目 Customizations、`/skills` 的身份、版本、来源与加载路径；
